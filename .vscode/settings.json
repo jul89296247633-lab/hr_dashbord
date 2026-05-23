@@ -1,0 +1,9 @@
+{
+  // Миграции Supabase — это PostgreSQL, а не T-SQL/MSSQL.
+  // Без этой ассоциации VS Code подсвечивает PG-конструкции (CREATE OR REPLACE FUNCTION,
+  // DECLARE/BEGIN/EXCEPTION, JSONB-операторы `-` и `?`) как ошибки несуществующего диалекта.
+  // ID языка `postgres` поставляет расширение ms-ossdata.vscode-postgresql.
+  "files.associations": {
+    "**/supabase/migrations/*.sql": "postgres"
+  }
+}
