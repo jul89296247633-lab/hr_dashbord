@@ -36,19 +36,20 @@ import {
 import type { DashboardPeriod, TeamResponse } from '@/components/dashboard/types';
 
 // ── Локальные типы ответов (richer, чем dashboard/types) ──────────────────────
+// avg_response_hours убран: в новом отчёте HH `recruitment_analytics_managers_*`
+// этой колонки нет. Поле в БД остаётся nullable для исторических данных, но
+// в UI больше не показывается.
 interface CompanyPoliteness {
   politeness_index: number | null;
   responses_received: number | null;
   responses_viewed: number | null;
   responses_answered: number | null;
-  avg_response_hours: number | null;
 }
 interface ManagerPoliteness {
   manager_id: string;
   politeness_index: number | null;
   responses_received: number | null;
   responses_answered: number | null;
-  avg_response_hours: number | null;
 }
 interface PolitenessData {
   company: CompanyPoliteness | null;
@@ -186,8 +187,7 @@ export function EfficiencyClient() {
                 <span className="text-muted-foreground text-sm">
                   Откликов: {politeness.company.responses_received ?? '—'} · Просмотрено:{' '}
                   {politeness.company.responses_viewed ?? '—'} · Отвечено:{' '}
-                  {politeness.company.responses_answered ?? '—'} · Ср. время ответа:{' '}
-                  {politeness.company.avg_response_hours ?? '—'} ч
+                  {politeness.company.responses_answered ?? '—'}
                 </span>
               </CardContent>
             </Card>
@@ -251,8 +251,7 @@ export function EfficiencyClient() {
                             </TooltipTrigger>
                             <TooltipContent>
                               Ответил на {iv?.responses_answered ?? '—'} из{' '}
-                              {iv?.responses_received ?? '—'} · Ср. время:{' '}
-                              {iv?.avg_response_hours ?? '—'} ч
+                              {iv?.responses_received ?? '—'}
                             </TooltipContent>
                           </Tooltip>
                         ) : (

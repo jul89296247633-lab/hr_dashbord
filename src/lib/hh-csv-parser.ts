@@ -1,34 +1,55 @@
 import iconv from 'iconv-lite';
 
 /**
- * Парсинг CSV-выгрузок HH «Аналитика подбора». Кодировка windows-1251.
- * См. SPEC §5.5b. Только серверный код.
+ * Парсинг CSV-выгрузок HH «Аналитика подбора». См. SPEC §5.5b.
+ * Только серверный код.
+ *
+ * Архитектура (изменена с OAuth API на CSV):
+ *  - HH перестал отдавать отдельные отчёты «звонки» / «индекс компании»;
+ *    остались только два аналитических CSV — менеджеры и вакансии.
+ *  - Кодировка новых файлов — UTF-8 (с BOM), а не windows-1251.
+ *    Поэтому `decodeCsv` пытается UTF-8 первым (по BOM-маркеру),
+ *    fallback — windows-1251 для устаревших отчётов.
+ *  - Разделитель: `;`. Числа: запятая как десятичный (0,14 → 0.14).
+ *  - Индекс вежливости приходит строкой вида `"97%"` → используем parsePercent.
  */
 
-export type HHReportType = 'calls' | 'politeness_managers' | 'politeness_company';
+export type HHReportType =
+  | 'politeness_managers'  // recruitment_analytics_managers_statistics
+  | 'vacancies';           // recruitment_analytics_vacancies
 
-/** Ожидаемые колонки по типу отчёта (для валидации формата). */
+/**
+ * Ожидаемые колонки по типу отчёта (минимум для валидации формата).
+ * Проверка через `includes()` — допускает мелкие хвосты типа «, шт.».
+ */
 export const EXPECTED_COLUMNS: Record<HHReportType, string[]> = {
-  calls: ['Менеджер', 'Количество звонков'],
-  politeness_managers: [
-    'Менеджер',
-    'Индекс вежливости',
-    'Получено откликов',
-    'Отмечено просмотренными',
-    'Отправлено ответов',
-    'Среднее время ответа',
-  ],
-  politeness_company: [
-    'Индекс вежливости',
-    'Получено откликов',
-    'Отмечено просмотренными',
-    'Отправлено ответов',
-  ],
+  // recruitment_analytics_managers_statistics_*.csv
+  // Реальные заголовки HH: "Менеджер" | "id менеджера" | "Индекс вежливости"
+  // (формат значения "97%"). Дополнительные колонки (Отклики, шт. / Просмотры
+  // резюме из отклика, шт. / Приглашений из откликов, шт.) парсим как nullable.
+  politeness_managers: ['Менеджер', 'id менеджера', 'Индекс вежливости'],
+
+  // recruitment_analytics_vacancies_*.csv
+  // Реальные заголовки HH: "id вакансии" | "Название вакансии" | "Архивная" |
+  // "Фактическая дата архивации" | "Менеджеры" | "Показы" | "Просмотры" |
+  // "Отклики" | "Приглашения из откликов" | "Звонки" | "Просмотры резюме из отклика"
+  vacancies: ['id вакансии', 'Показы', 'Просмотры', 'Отклики', 'Приглашения из откликов'],
 };
 
-/** windows-1251 Buffer → UTF-8 строка. */
+/** windows-1251 Buffer → UTF-8 строка (для устаревших отчётов HH). */
 export function decodeWin1251(buffer: Buffer): string {
   return iconv.decode(buffer, 'win1251');
+}
+
+/**
+ * Универсальный декод: пытается UTF-8 (если есть BOM ﻿ в начале),
+ * иначе fallback на windows-1251. Новые аналитические CSV — UTF-8 BOM.
+ */
+export function decodeCsv(buffer: Buffer): string {
+  const utf8 = buffer.toString('utf8');
+  if (utf8.charCodeAt(0) === 0xfeff) return utf8.slice(1);
+  // Без BOM считаем что это устаревший формат — windows-1251.
+  return decodeWin1251(buffer);
 }
 
 export interface ParsedCsv {
@@ -103,7 +124,22 @@ export function normalizeName(name: string): string {
 /** Парсит число из CSV-ячейки (запятая как десятичный разделитель). */
 export function parseNumber(value: string): number | null {
   const cleaned = (value ?? '').replace(/\s/g, '').replace(',', '.');
-  if (cleaned === '') return null;
+  if (cleaned === '' || cleaned === '-') return null;
   const n = Number.parseFloat(cleaned);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Парсит процент из CSV-ячейки. HH отдаёт «Индекс вежливости» как `"97%"`.
+ * Возвращает 0–100 (как и поле БД `politeness_index`). Пустое/«-» → null.
+ */
+export function parsePercent(value: string): number | null {
+  return parseNumber((value ?? '').replace('%', ''));
+}
+
+/**
+ * Булева проверка для CSV-полей вида «Да»/«Нет» (используется в `Архивная`).
+ */
+export function parseBoolYesNo(value: string): boolean {
+  return (value ?? '').trim().toLowerCase() === 'да';
 }

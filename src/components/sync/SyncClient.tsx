@@ -7,7 +7,7 @@ import {
   Loader2,
   Phone,
   Star,
-  Building2,
+  Briefcase,
   Upload,
   FileSpreadsheet,
 } from 'lucide-react';
@@ -18,12 +18,32 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-type CsvType = 'calls' | 'politeness' | 'company_politeness';
+type CsvType = 'vacancies' | 'politeness_managers';
 
-const CSV_ZONES: { type: CsvType; label: string; icon: typeof Phone }[] = [
-  { type: 'calls', label: 'Звонки менеджеров', icon: Phone },
-  { type: 'politeness', label: 'Индекс вежливости менеджеров', icon: Star },
-  { type: 'company_politeness', label: 'Индекс вежливости компании', icon: Building2 },
+// HH перестал отдавать отдельные CSV «звонки» и «индекс компании»:
+//  - звонки менеджера → теперь в файле вакансий (колонка «Звонки»);
+//  - индекс компании → weighted average по менеджерам, считается в /api/stats/politeness.
+const CSV_ZONES: {
+  type: CsvType;
+  label: string;
+  icon: typeof Phone;
+  description: string;
+  fileHint: string;
+}[] = [
+  {
+    type: 'vacancies',
+    label: 'Аналитика вакансий',
+    icon: Briefcase,
+    description: 'Воронка по вакансиям — показы, отклики, приглашения, звонки',
+    fileHint: 'recruitment_analytics_vacancies_*.csv',
+  },
+  {
+    type: 'politeness_managers',
+    label: 'Статистика менеджеров',
+    icon: Star,
+    description: 'Индекс вежливости и активность менеджеров',
+    fileHint: 'recruitment_analytics_managers_statistics_*.csv',
+  },
 ];
 
 interface SyncLog {
@@ -124,9 +144,16 @@ export function SyncClient() {
           </p>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {CSV_ZONES.map((z) => (
-              <CsvUploadCard key={z.type} type={z.type} label={z.label} icon={z.icon} />
+              <CsvUploadCard
+                key={z.type}
+                type={z.type}
+                label={z.label}
+                icon={z.icon}
+                description={z.description}
+                fileHint={z.fileHint}
+              />
             ))}
           </div>
         </CardContent>
@@ -169,10 +196,14 @@ function CsvUploadCard({
   type,
   label,
   icon: Icon,
+  description,
+  fileHint,
 }: {
   type: CsvType;
   label: string;
   icon: typeof Phone;
+  description: string;
+  fileHint: string;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [statDate, setStatDate] = useState(new Date().toISOString().slice(0, 10));
@@ -217,6 +248,8 @@ function CsvUploadCard({
           <Icon className="size-4" />
           {label}
         </div>
+        <p className="text-muted-foreground text-sm">{description}</p>
+        <p className="text-muted-foreground font-mono text-[11px]">{fileHint}</p>
         <div className="grid gap-2">
           <Label htmlFor={`file-${type}`} className="text-xs">
             CSV-файл

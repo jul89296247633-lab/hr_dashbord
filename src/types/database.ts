@@ -349,6 +349,7 @@ export type Database = {
           user_profile_id: string | null;
           email_sheet: string | null;
           is_active_sheet: boolean;
+          hh_manager_id: string | null;
           synced_at: string;
           created_at: string;
           updated_at: string;
@@ -359,6 +360,7 @@ export type Database = {
           user_profile_id?: string | null;
           email_sheet?: string | null;
           is_active_sheet?: boolean;
+          hh_manager_id?: string | null;
           synced_at?: string;
           created_at?: string;
           updated_at?: string;
@@ -369,6 +371,7 @@ export type Database = {
           user_profile_id?: string | null;
           email_sheet?: string | null;
           is_active_sheet?: boolean;
+          hh_manager_id?: string | null;
           synced_at?: string;
           created_at?: string;
           updated_at?: string;

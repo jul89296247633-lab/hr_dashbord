@@ -148,10 +148,18 @@ export const syncLogsQuerySchema = z.object({
 
 /**
  * Query POST /api/sync/hh-csv: тип отчёта.
- * Маппинг на hh_manager_stats.source_csv выполняется в роуте:
- *   calls → 'calls', politeness → 'politeness_managers', company_politeness → 'politeness_company'.
+ *  - 'politeness_managers' → файл recruitment_analytics_managers_statistics:
+ *      пишет hh_manager_stats (source_csv='politeness_managers').
+ *  - 'vacancies' → файл recruitment_analytics_vacancies:
+ *      пишет vacancy_snapshots + EC-03 (Архивная=Да → vacancies.status='closed').
+ *
+ * Устаревшие 'calls' / 'company_politeness' убраны: HH перестал выгружать их
+ * отдельными CSV. Индекс компании теперь считается на лету в /api/stats/politeness
+ * (weighted average по менеджерам). Звонки менеджера — Манго или ручной ввод.
+ *
+ * Имена query совпадают с внутренним `HHReportType` парсера один-в-один.
  */
-export const hhCsvTypeSchema = z.enum(['calls', 'politeness', 'company_politeness']);
+export const hhCsvTypeSchema = z.enum(['politeness_managers', 'vacancies']);
 
 // ── Bonuses ──────────────────────────────────────────────────────────────────
 export const bonusesQuerySchema = z.object({
