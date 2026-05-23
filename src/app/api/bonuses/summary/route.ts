@@ -10,8 +10,13 @@ import { createClient } from '@/lib/supabase/server';
 import { bonusesSummaryPeriodSchema } from '@/lib/validations';
 
 /**
- * GET /api/bonuses/summary — сводка бонусов по менеджерам за период (week|month|quarter|year).
- * manager — только свой ряд (RLS); head/admin — все.
+ * GET /api/bonuses/summary — сводка бонусов по менеджерам за период
+ * (week|month|quarter|year). manager — только свой ряд; head/admin — все.
+ *
+ * Источник — RPC compute_manager_bonuses (SPEC §5.3 / §5.6):
+ * бонус считается на лету как тариф из bonus_rates, fuzzy-совпавший
+ * с hired_employees.position_name. Статусов pending/paid в новой модели нет
+ * (см. историю: до 20260523180000_bonus_rates).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -25,51 +30,44 @@ export async function GET(request: NextRequest) {
     }
     const { from, to } = periodRange(periodParsed.data);
 
-    const supabase = await createClient();
-    let query = supabase
-      .from('hr_bonuses')
-      .select(
-        'manager_id, bonus_amount_kopecks, bonus_date, status, manager:user_profiles!hr_bonuses_manager_id_fkey(id, full_name)',
-      )
-      .not('manager_id', 'is', null)
-      .gte('bonus_date', from)
-      .lte('bonus_date', to);
-    if (user.role === 'manager') query = query.eq('manager_id', user.id);
+    const effectiveManagerId = user.role === 'manager' ? user.id : null;
 
-    const { data, error } = await query;
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc('compute_manager_bonuses', {
+      p_from: from,
+      p_to: to,
+      p_manager_id: effectiveManagerId,
+    });
     if (error) throw new ApiError(500, 'DB_ERROR', error.message);
 
-    // Группировка по менеджеру.
+    type RpcRow = {
+      manager_id: string | null;
+      manager_name: string | null;
+      hired_date: string;
+      amount_kopecks: number | null;
+    };
+
     const byManager = new Map<
       string,
-      {
-        full_name: string;
-        count: number;
-        pending: number;
-        paid: number;
-        lastDate: string | null;
-      }
+      { full_name: string; count: number; total: number; lastDate: string | null }
     >();
-
-    for (const b of data ?? []) {
-      if (!b.manager_id) continue;
+    for (const r of (data as RpcRow[] | null) ?? []) {
+      if (!r.manager_id) continue;
       const entry =
-        byManager.get(b.manager_id) ??
-        { full_name: b.manager?.full_name ?? '—', count: 0, pending: 0, paid: 0, lastDate: null };
+        byManager.get(r.manager_id) ??
+        { full_name: r.manager_name ?? '—', count: 0, total: 0, lastDate: null };
       entry.count += 1;
-      if (b.status === 'paid') entry.paid += b.bonus_amount_kopecks ?? 0;
-      else entry.pending += b.bonus_amount_kopecks ?? 0;
-      if (!entry.lastDate || b.bonus_date > entry.lastDate) entry.lastDate = b.bonus_date;
-      byManager.set(b.manager_id, entry);
+      entry.total += r.amount_kopecks ?? 0;
+      if (!entry.lastDate || r.hired_date > entry.lastDate) entry.lastDate = r.hired_date;
+      byManager.set(r.manager_id, entry);
     }
 
     const summary = Array.from(byManager.entries()).map(([managerId, e]) => ({
       manager_id: managerId,
       full_name: e.full_name,
       bonuses_count: e.count,
-      total_pending_kopecks: e.pending,
-      total_paid_kopecks: e.paid,
-      total_display: formatKopecks(e.pending + e.paid),
+      total_kopecks: e.total,
+      total_display: formatKopecks(e.total),
       last_bonus_date: e.lastDate,
     }));
 

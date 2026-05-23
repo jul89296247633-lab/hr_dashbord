@@ -398,6 +398,30 @@ export type Database = {
           },
         ];
       };
+      bonus_rates: {
+        Row: {
+          id: string;
+          position_name: string;
+          amount_kopecks: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          position_name: string;
+          amount_kopecks: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          position_name?: string;
+          amount_kopecks?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       hr_bonuses: {
         Row: {
           id: string;
@@ -793,6 +817,28 @@ export type Database = {
           similarity_threshold?: number;
         };
         Returns: string;
+      };
+      compute_manager_bonuses: {
+        Args: {
+          p_from: string;
+          p_to: string;
+          p_manager_id?: string | null;
+          p_threshold?: number;
+        };
+        Returns: {
+          hired_id: string;
+          manager_id: string | null;
+          manager_name: string | null;
+          manager_is_active: boolean | null;
+          vacancy_id: string | null;
+          vacancy_title: string | null;
+          position_name: string;
+          hired_date: string;
+          rate_id: string | null;
+          rate_position_name: string | null;
+          amount_kopecks: number | null;
+          similarity_score: number | null;
+        }[];
       };
     };
     Enums: {

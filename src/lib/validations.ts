@@ -162,24 +162,18 @@ export const syncLogsQuerySchema = z.object({
 export const hhCsvTypeSchema = z.enum(['politeness_managers', 'vacancies']);
 
 // ── Bonuses ──────────────────────────────────────────────────────────────────
+// Bonuses вычисляются на лету в RPC compute_manager_bonuses (SPEC §5.3 / §5.6).
+// status/page/per_page удалены: один менеджер за месяц даёт единицы строк.
 export const bonusesQuerySchema = z.object({
   manager_id: z.string().uuid('Некорректный UUID менеджера').optional(),
-  status: z.enum(['pending', 'paid', 'all']).default('all'),
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
-  page: z.coerce.number().int().min(1).default(1),
-  per_page: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 /** Query GET /api/bonuses/summary. */
 export const bonusesSummaryPeriodSchema = z
   .enum(['week', 'month', 'quarter', 'year'])
   .default('month');
-
-/** Тело PATCH /api/bonuses/[id]/match. */
-export const bonusMatchSchema = z.object({
-  vacancy_id: z.string().uuid('Некорректный UUID вакансии'),
-});
 
 // ── AI ───────────────────────────────────────────────────────────────────────
 export const aiInsightsQuerySchema = z.object({

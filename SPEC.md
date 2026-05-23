@@ -37,7 +37,7 @@
 |------|-----------|-----------------|
 | `Вакансии` | Все вакансии, статус и даты | Название, Статус, Подразделение, Менеджер, Дата открытия, Дата закрытия |
 | `HR менеджеры` | Список действующих менеджеров | ФИО, Email, Подразделение |
-| `Бонусы_HR` | Бонусы по закрытым вакансиям | Название вакансии, Менеджер, Сумма бонуса, Дата выплаты |
+| `Бонусы_HR` | Справочник тарифов «Должность → Стоимость закрытия» (`bonus_rates`) | Должность, Стоимость (руб.) |
 
 - **Воронка подбора (7 этапов):** Отклик → Открытый контакт → Приглашение → Звонок → Собеседование → **Стажировка** → Трудоустройство
 - **Стажировка** — отдельный этап: кандидат принят, но ещё на испытательном сроке/стажировке; фиксируется в Sheets столбцом «Статус» = «стажировка»
@@ -111,7 +111,7 @@ TELEGRAM_ADMIN_CHAT_ID=-1001234567890
 /dashboard/efficiency    → эффективность менеджеров: KPI vs план + бонусы (head, admin)
 /dashboard/divisions     → аналитика по подразделениям: воронка + сроки + укомплектованность (head, executive, admin)
 /dashboard/manager       → личный дашборд текущего менеджера (manager)
-/bonuses                 → бонусы HR: таблица начислений по закрытым вакансиям (head, admin; свои — manager)
+/bonuses                 → бонусы HR: рассчитываются на лету из bonus_rates × hired_employees за месяц (head, admin; свои — manager)
 
 /ai                      → AI-инсайты: аномалии + прогнозы + рекомендации + еженедельный отчёт (head, admin)
 /ai/report/[week]        → конкретный еженедельный AI-отчёт (head, admin)
@@ -2788,31 +2788,27 @@ export const AdminUserCreateSchema = z.object({
 
 ### Экран: Бонусы `/bonuses`
 
-**Назначение:** Таблица всех начисленных бонусов с привязкой к вакансиям и менеджерам.
+**Назначение:** Таблица бонусов, начисленных менеджерам за закрытые вакансии
+в текущем месяце. Источник — RPC `compute_manager_bonuses` (см. §5.3 / §5.6):
+бонус = тариф из `bonus_rates`, fuzzy-совпавший с `hired_employees.position_name`
+по `pg_trgm` (threshold 0.6). Статусов «начислен/выплачен» нет — `hr_bonuses`
+не используется в новой модели.
+
 **Layout:** `(app)/layout` с sidebar
-**Доступ:** head/admin — все; manager — только свои.
+**Доступ:** head/admin — все; manager — только свои (API форсит `p_manager_id = auth.uid()`).
 
 **Компоненты:**
-- **Сводные карточки** `grid grid-cols-3 gap-4`:
-  - `Card` «Начислено за месяц»: сумма `bonus_amount_kopecks WHERE status IN ('pending','paid')` с форматированием «250 000 ₽»
-  - `Card` «Выплачено»: сумма `WHERE status='paid'`
-  - `Card` «Ожидают выплаты»: сумма `WHERE status='pending'`
+- **Сводная карточка** (одна):
+  - `Card` «Начислено за месяц» — `total_amount_display` из `/api/bonuses`.
+- **Фильтр** (только head/admin): `Select` «Все менеджеры / {ФИО}».
 - **`Table`** бонусов:
-  - Колонки: «Менеджер» | «Вакансия» | «Сумма» | «Дата» | «Статус»
-  - «Статус»: `Badge` «Начислен» (жёлтый) / «Выплачен» (зелёный)
-  - Строки с `vacancy_id = NULL`: жёлтый фон + иконка `AlertTriangle` + «Не сопоставлено»
-  - Клик на несопоставленную строку → `Dialog` ручного выбора вакансии (`Select` из списка)
-- **Фильтры**: `Select` менеджер + `Select` статус + DateRange
+  - Колонки: «Менеджер» | «Вакансия» | «Должность» | «Сумма»
+  - «Должность» = `hired_employees.position_name`. Сумма «—» если тариф
+    в `bonus_rates` не найден (fuzzy score < 0.6).
 
 **Состояния:**
-- **Loading:** `Skeleton` карточки + таблица
-- **Empty:** «Бонусов за выбранный период нет»
-- **Unmatched warning:** `Alert` вверху «{N} бонусов не привязаны к вакансии — требуют ручного сопоставления»
-
-**Действия:**
-1. Фильтр → обновление таблицы
-2. `Button` иконка `Download` «Экспорт CSV»
-3. Клик несопоставленной строки → `Dialog` → `PATCH /api/bonuses/[id]/match`
+- **Loading:** `Skeleton`
+- **Empty:** «Бонусов за текущий месяц нет»
 
 ---
 
@@ -3844,46 +3840,59 @@ async function syncManagersList(rows: SheetRow[]) {
 - **Ограничение:** учётки с адресом `@hr.local` не могут получать почту
   и логиниться, пока admin не выставит реальный email через `/admin/users`.
 
-**Лист «Бонусы_HR» — синхронизация бонусов:**
+**Лист «Бонусы_HR» — справочник тарифов «Должность → Стоимость»:**
+
+Лист содержит две колонки: **Должность** (или «Позиция»/«Вакансия»/«Название») и
+**Стоимость** (или «Сумма»/«Тариф») в рублях. НЕ журнал начислений — список
+расценок «сколько платится за закрытие данной позиции».
+
 ```typescript
-// Столбцы: Название вакансии | Менеджер | Сумма бонуса (руб.) | Дата | Статус (начислен/выплачен)
-async function syncBonuses(rows: SheetRow[], rowOffset: number) {
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const vacancyTitle = row['Название вакансии']?.trim();
-    const managerName  = row['Менеджер']?.trim();
-    const amountRub    = parseFloat(row['Сумма бонуса'] ?? '0');
-    if (!vacancyTitle || !managerName || isNaN(amountRub)) continue;
+// Upsert в bonus_rates по position_name.
+async function syncBonusRates(rows: SheetRow[]) {
+  for (const row of rows) {
+    const position = (
+      row['Должность'] ?? row['Позиция'] ?? row['Вакансия'] ?? row['Название'] ?? ''
+    ).trim();
+    const amountKopecks = rublesToKopecks(
+      row['Стоимость'] ?? row['Сумма'] ?? row['Тариф'] ?? '0',
+    );
+    if (position.length < 2 || amountKopecks <= 0) continue;
 
-    // Сопоставление вакансии по названию (fuzzy-match)
-    const { data: vacancies } = await supabase.rpc('fuzzy_match_vacancy', {
-      search_title: vacancyTitle,
-      threshold: 0.8
-    });
-    const matchedVacancyId = vacancies?.[0]?.id ?? null;
-
-    // Сопоставление менеджера через hr_manager_syncs
-    const { data: sync } = await supabase
-      .from('hr_manager_syncs')
-      .select('id, user_profile_id')
-      .eq('sheet_full_name', managerName)
-      .single();
-
-    await supabase.from('hr_bonuses').upsert({
-      sheet_row_id:         rowOffset + i + 2, // +2: заголовок + 1-based
-      manager_sync_id:      sync?.id ?? null,
-      manager_id:           sync?.user_profile_id ?? null,
-      vacancy_id:           matchedVacancyId,
-      vacancy_title_sheet:  vacancyTitle,
-      manager_name_sheet:   managerName,
-      bonus_amount_kopecks: Math.round(amountRub * 100),
-      bonus_date:           parseSheetDate(row['Дата']),
-      status:               row['Статус']?.includes('выплач') ? 'paid' : 'pending',
-      synced_at:            new Date().toISOString(),
-    }, { onConflict: 'sheet_row_id' });
+    await supabase.from('bonus_rates').upsert(
+      { position_name: position, amount_kopecks: amountKopecks },
+      { onConflict: 'position_name' },
+    );
   }
 }
 ```
+
+**Расчёт бонусов на лету (RPC `compute_manager_bonuses`):**
+
+Источник для `/api/bonuses` и `/api/bonuses/summary`. Параметры:
+`p_from DATE`, `p_to DATE`, `p_manager_id UUID` (опц.), `p_threshold FLOAT = 0.6`.
+
+```sql
+SELECT he.id, v.manager_id, v.title AS vacancy_title, he.position_name,
+       he.hired_date, br.amount_kopecks, br.similarity_score
+FROM hired_employees he
+LEFT JOIN vacancies v ON v.id = he.vacancy_id
+LEFT JOIN LATERAL (
+  SELECT id, position_name, amount_kopecks,
+         similarity(position_name, he.position_name) AS score
+  FROM bonus_rates
+  WHERE similarity(position_name, he.position_name) >= 0.6
+  ORDER BY score DESC LIMIT 1
+) br ON TRUE
+WHERE he.status = 'hired'
+  AND he.hired_date BETWEEN $p_from AND $p_to
+  AND ($p_manager_id IS NULL OR v.manager_id = $p_manager_id);
+```
+
+- `status = 'hired'` (стажёры — `status='probation'` — в бонусы не идут).
+- Если тариф не найден (нет в `bonus_rates` или similarity < 0.6) — строка
+  возвращается с `amount_kopecks = NULL` (UI показывает «—»).
+- SECURITY DEFINER + GRANT EXECUTE TO authenticated; API форсит
+  `p_manager_id = auth.uid()` для роли `manager`.
 
 **SQL-функция fuzzy_match_vacancy (создать в Supabase):**
 ```sql

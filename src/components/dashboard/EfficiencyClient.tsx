@@ -57,8 +57,7 @@ interface PolitenessData {
 }
 interface BonusSummary {
   manager_id: string;
-  total_pending_kopecks: number;
-  total_paid_kopecks: number;
+  total_kopecks: number;
 }
 
 const STATUS: Record<ManagerStatus, { label: string; className: string }> = {
@@ -120,11 +119,8 @@ export function EfficiencyClient() {
   }, [load]);
 
   const ivByManager = new Map(politeness?.managers.map((m) => [m.manager_id, m]) ?? []);
-  const bonusByManager = new Map(
-    bonuses.map((b) => [b.manager_id, b.total_pending_kopecks + b.total_paid_kopecks]),
-  );
-  const totalPending = bonuses.reduce((s, b) => s + b.total_pending_kopecks, 0);
-  const totalPaid = bonuses.reduce((s, b) => s + b.total_paid_kopecks, 0);
+  const bonusByManager = new Map(bonuses.map((b) => [b.manager_id, b.total_kopecks]));
+  const totalBonusKopecks = bonuses.reduce((s, b) => s + b.total_kopecks, 0);
 
   const allManagers = (team?.managers ?? []).filter((m) => m.id);
   const rows = allManagers.filter((m) => managerFilter === 'all' || m.id === managerFilter);
@@ -283,20 +279,10 @@ export function EfficiencyClient() {
               <ChevronDown className="size-4 transition-transform" />
             </CollapsibleTrigger>
             <CollapsibleContent className="border-t px-4 py-3">
-              <div className="text-muted-foreground grid gap-1 text-sm sm:grid-cols-3">
-                <span>
-                  Итого начислено:{' '}
-                  <span className="text-foreground font-medium">
-                    {formatKopecks(totalPending + totalPaid)}
-                  </span>
-                </span>
-                <span>
-                  Выплачено:{' '}
-                  <span className="text-foreground font-medium">{formatKopecks(totalPaid)}</span>
-                </span>
-                <span>
-                  Ожидают выплаты:{' '}
-                  <span className="text-foreground font-medium">{formatKopecks(totalPending)}</span>
+              <div className="text-muted-foreground text-sm">
+                Итого начислено:{' '}
+                <span className="text-foreground font-medium">
+                  {formatKopecks(totalBonusKopecks)}
                 </span>
               </div>
               <Link href="/bonuses" className="mt-2 inline-block text-sm text-primary hover:underline">

@@ -163,14 +163,6 @@ export async function POST() {
       );
     }
 
-    // Карта имя → manager_sync_id (для бонусов).
-    const { data: syncs } = await db
-      .from('hr_manager_syncs')
-      .select('id, sheet_full_name, user_profile_id');
-    const syncByName = new Map(
-      (syncs ?? []).map((s) => [s.sheet_full_name.trim().toLowerCase(), s]),
-    );
-
     // ── Data → vacancies (upsert ВСЕ) + hired_employees (закрытые / стажировка) ─
     //
     // Доступ к колонкам — по заголовкам через row.values[...], чтобы парсер
@@ -331,39 +323,39 @@ export async function POST() {
       }
     }
 
-    // ── Бонусы_HR → hr_bonuses ───────────────────────────────────────────────
+    // ── Бонусы_HR → bonus_rates (справочник «Должность → Стоимость») ────────
+    // SPEC §5.3 / §5.6: лист «Бонусы_HR» хранит тарифы закрытия должности,
+    // а не журнал начислений. Бонус менеджера считается на лету в
+    // /api/bonuses через RPC compute_manager_bonuses (fuzzy-match с
+    // hired_employees.position_name по pg_trgm).
+    //
+    // Поддерживаем несколько вариантов заголовков (Должность/Позиция/Вакансия;
+    // Стоимость/Сумма/Тариф) — формат листа исторически плавал.
     const bonusRows = await readSheetTab(BONUSES_TAB());
-    let bonusesUpserted = 0;
+    let ratesUpserted = 0;
     for (const row of bonusRows) {
-      const vacancyTitle = (row.values['Вакансия'] ?? row.values['Название'] ?? '').trim();
-      const managerName = (row.values['Менеджер'] ?? '').trim();
-      const bonusDate = parseSheetDate(row.values['Дата'] ?? '');
-      if (vacancyTitle.length < 2 || managerName.length < 2 || !bonusDate) continue;
+      const position =
+        (row.values['Должность'] ??
+          row.values['Позиция'] ??
+          row.values['Вакансия'] ??
+          row.values['Название'] ??
+          '').trim();
+      const amountRaw =
+        row.values['Стоимость'] ??
+        row.values['Сумма'] ??
+        row.values['Тариф'] ??
+        '0';
+      const amountKopecks = rublesToKopecks(amountRaw);
+      if (position.length < 2 || amountKopecks <= 0) continue;
 
-      const sync = syncByName.get(managerName.toLowerCase());
-      const { data: fuzzyVac } = await db.rpc('fuzzy_match_vacancy', {
-        search_title: vacancyTitle,
-        threshold: 0.8,
-      });
-      const vacancyId = fuzzyVac && fuzzyVac.length > 0 ? fuzzyVac[0].id : null;
-
-      const statusRaw = (row.values['Статус'] ?? '').toLowerCase();
-      await db.from('hr_bonuses').upsert(
+      await db.from('bonus_rates').upsert(
         {
-          sheet_row_id: row.rowIndex,
-          manager_sync_id: sync?.id ?? null,
-          manager_id: sync?.user_profile_id ?? null,
-          vacancy_id: vacancyId,
-          vacancy_title_sheet: vacancyTitle,
-          manager_name_sheet: managerName,
-          bonus_amount_kopecks: rublesToKopecks(row.values['Сумма'] ?? '0'),
-          bonus_date: bonusDate,
-          status: statusRaw.includes('выплач') ? 'paid' : 'pending',
-          synced_at: new Date().toISOString(),
+          position_name: position,
+          amount_kopecks: amountKopecks,
         },
-        { onConflict: 'sheet_row_id' },
+        { onConflict: 'position_name' },
       );
-      bonusesUpserted += 1;
+      ratesUpserted += 1;
     }
 
     const finishedAt = new Date().toISOString();
@@ -372,7 +364,7 @@ export async function POST() {
       .update({
         status: 'ok',
         records_total: vacancyRows.length,
-        records_updated: closed + bonusesUpserted,
+        records_updated: closed + ratesUpserted,
         finished_at: finishedAt,
       })
       .eq('id', log.id);
@@ -389,7 +381,9 @@ export async function POST() {
         // skipped_no_manager: ФИО из колонки «Менеджеры» не найдено в user_profiles.
         skipped_no_manager: skippedManagersInVacancies.length,
         skipped_no_manager_rows: skippedManagersInVacancies,
-        bonuses_upserted: bonusesUpserted,
+        // SPEC §5.6: лист «Бонусы_HR» — справочник тарифов (position → amount),
+        // upsert в bonus_rates по position_name.
+        rates_upserted: ratesUpserted,
         skipped_managers: skippedManagers,
         // Сколько auth-пользователей создано автоматически из листа «HR_менеджеры»
         // (для тех ФИО, которых ещё не было в user_profiles).

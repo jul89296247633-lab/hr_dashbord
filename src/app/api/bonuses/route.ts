@@ -11,8 +11,15 @@ import { createClient } from '@/lib/supabase/server';
 import { bonusesQuerySchema } from '@/lib/validations';
 
 /**
- * GET /api/bonuses — список бонусов. manager видит только свои (RLS),
- * head/admin — все. Фильтры: manager_id (head/admin), status, year, month.
+ * GET /api/bonuses — список бонусов за период (по умолчанию текущий месяц).
+ *
+ * SPEC §5.3 / §5.6: бонус считается на лету как тариф из bonus_rates
+ * (fuzzy-match с hired_employees.position_name по pg_trgm threshold 0.6).
+ * Источник истины — RPC compute_manager_bonuses (SECURITY DEFINER).
+ *
+ * RLS-инвариант:
+ *  - manager → форсим p_manager_id = auth.uid() (видит только свои);
+ *  - head/admin → опциональный manager_id в query.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -21,64 +28,65 @@ export async function GET(request: NextRequest) {
     const sp = request.nextUrl.searchParams;
     const parsed = bonusesQuerySchema.safeParse({
       manager_id: sp.get('manager_id') ?? undefined,
-      status: sp.get('status') ?? undefined,
       year: sp.get('year') ?? undefined,
       month: sp.get('month') ?? undefined,
-      page: sp.get('page') ?? undefined,
-      per_page: sp.get('per_page') ?? undefined,
     });
     if (!parsed.success) {
       return apiError('VALIDATION_ERROR', parsed.error.issues[0].message, 422);
     }
-    const { manager_id, status, year, month, page, per_page } = parsed.data;
+    const { manager_id, year, month } = parsed.data;
 
     if (manager_id) requireRole(user, ['head', 'admin']);
 
-    const supabase = await createClient();
-    const dateRange = monthRange(year, month);
-    // Эффективный фильтр по менеджеру: явный (head/admin) либо собственный (manager).
+    // Эффективный manager filter: manager-роль всегда видит только себя.
     const effectiveManagerId = manager_id ?? (user.role === 'manager' ? user.id : null);
 
-    // Страница результатов с эмбедами менеджера и вакансии.
-    let listQuery = supabase
-      .from('hr_bonuses')
-      .select(
-        'id, manager_id, vacancy_id, vacancy_title_sheet, bonus_amount_kopecks, bonus_date, status, manager:user_profiles!hr_bonuses_manager_id_fkey(id, full_name, is_active), vacancy:vacancies!hr_bonuses_vacancy_id_fkey(id, title)',
-        { count: 'exact' },
-      );
-    if (effectiveManagerId) listQuery = listQuery.eq('manager_id', effectiveManagerId);
-    if (status !== 'all') listQuery = listQuery.eq('status', status);
-    if (dateRange) listQuery = listQuery.gte('bonus_date', dateRange.from).lte('bonus_date', dateRange.to);
+    const { from, to } = monthRange(year, month);
 
-    const from = (page - 1) * per_page;
-    const { data, count, error } = await listQuery
-      .order('bonus_date', { ascending: false })
-      .range(from, from + per_page - 1);
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc('compute_manager_bonuses', {
+      p_from: from,
+      p_to: to,
+      p_manager_id: effectiveManagerId,
+    });
     if (error) throw new ApiError(500, 'DB_ERROR', error.message);
 
-    // Сумма по всем подходящим записям (не только текущая страница).
-    let sumQuery = supabase.from('hr_bonuses').select('bonus_amount_kopecks');
-    if (effectiveManagerId) sumQuery = sumQuery.eq('manager_id', effectiveManagerId);
-    if (status !== 'all') sumQuery = sumQuery.eq('status', status);
-    if (dateRange) sumQuery = sumQuery.gte('bonus_date', dateRange.from).lte('bonus_date', dateRange.to);
-    const { data: sumRows, error: sumError } = await sumQuery;
-    if (sumError) throw new ApiError(500, 'DB_ERROR', sumError.message);
-    const totalAmountKopecks = (sumRows ?? []).reduce(
-      (s, r) => s + (r.bonus_amount_kopecks ?? 0),
-      0,
-    );
+    type RpcRow = {
+      hired_id: string;
+      manager_id: string | null;
+      manager_name: string | null;
+      manager_is_active: boolean | null;
+      vacancy_id: string | null;
+      vacancy_title: string | null;
+      position_name: string;
+      hired_date: string;
+      rate_id: string | null;
+      rate_position_name: string | null;
+      amount_kopecks: number | null;
+      similarity_score: number | null;
+    };
 
-    const rows = (data ?? []).map((b) => ({
-      ...b,
-      bonus_amount_display: formatKopecks(b.bonus_amount_kopecks),
-      unmatched_note: b.vacancy_id ? undefined : 'Вакансия не сопоставлена — привяжите вручную',
+    const rows = (data as RpcRow[] | null) ?? [];
+    const list = rows.map((r) => ({
+      hired_id: r.hired_id,
+      manager: r.manager_id
+        ? { id: r.manager_id, full_name: r.manager_name ?? '—', is_active: r.manager_is_active ?? true }
+        : null,
+      vacancy: r.vacancy_id ? { id: r.vacancy_id, title: r.vacancy_title ?? '—' } : null,
+      position_name: r.position_name,
+      hired_date: r.hired_date,
+      rate_position_name: r.rate_position_name,
+      amount_kopecks: r.amount_kopecks,
+      amount_display: r.amount_kopecks != null ? formatKopecks(r.amount_kopecks) : null,
     }));
 
+    const totalAmountKopecks = rows.reduce((s, r) => s + (r.amount_kopecks ?? 0), 0);
+
     return apiSuccess({
-      data: rows,
+      data: list,
       total_amount_kopecks: totalAmountKopecks,
       total_amount_display: formatKopecks(totalAmountKopecks),
-      meta: { total: count ?? 0, page, per_page },
+      meta: { from, to, total: list.length },
     });
   } catch (err) {
     return handleApiError(err);
@@ -90,17 +98,25 @@ function formatKopecks(kopecks: number): string {
   return `${(kopecks / 100).toLocaleString('ru-RU')} ₽`;
 }
 
-/** Диапазон дат по year/month. */
-function monthRange(
-  year?: number,
-  month?: number,
-): { from: string; to: string } | null {
-  if (!year) return null;
-  if (month) {
-    const from = `${year}-${String(month).padStart(2, '0')}-01`;
+/** Диапазон дат: при year+month — этот месяц; при year — весь год;
+ *  без аргументов — текущий месяц. */
+function monthRange(year?: number, month?: number): { from: string; to: string } {
+  if (year && month) {
     const last = new Date(year, month, 0).getDate();
-    const to = `${year}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
-    return { from, to };
+    return {
+      from: `${year}-${String(month).padStart(2, '0')}-01`,
+      to: `${year}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`,
+    };
   }
-  return { from: `${year}-01-01`, to: `${year}-12-31` };
+  if (year) {
+    return { from: `${year}-01-01`, to: `${year}-12-31` };
+  }
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = today.getMonth() + 1;
+  const last = new Date(y, m, 0).getDate();
+  return {
+    from: `${y}-${String(m).padStart(2, '0')}-01`,
+    to: `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`,
+  };
 }
