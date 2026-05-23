@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/server';
 import { divisionsPeriodSchema } from '@/lib/validations';
 
 const NO_SUBDIVISION = 'Без подразделения';
+const NO_LOCATION = 'Не указан';
 
 interface FunnelMini {
   responses: number;
@@ -18,6 +19,14 @@ interface FunnelMini {
   invitations_sent: number;
   hired: number;
   interns: number;
+}
+interface CityBreakdown {
+  /** Город (vacancies.location). Если в БД NULL → подставляется `Не указан`. */
+  location: string;
+  /** Активные сейчас. */
+  active: number;
+  /** Закрыто за выбранный period (status='closed' AND closed_at ∈ [from, to]). */
+  closed: number;
 }
 
 /**
@@ -48,7 +57,7 @@ export async function GET(request: NextRequest) {
     let vacancyQuery = supabase
       .from('vacancies')
       .select(
-        'id, title, subdivision, status, days_to_close, opened_at, closed_at, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
+        'id, title, subdivision, location, status, days_to_close, opened_at, closed_at, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
       );
     if (subdivisionFilter) vacancyQuery = vacancyQuery.eq('subdivision', subdivisionFilter);
     const { data: vacancies, error: vacError } = await vacancyQuery;
@@ -144,6 +153,27 @@ export async function GET(request: NextRequest) {
         };
       });
 
+      // Разбивка по городам внутри подразделения (SPEC §4 /dashboard/divisions).
+      // «активных сейчас» + «закрыто за период» — согласовано с заголовком карточки.
+      const cityAcc = new Map<string, { active: number; closed: number }>();
+      for (const v of list) {
+        const key = v.location?.trim() || NO_LOCATION;
+        const cur = cityAcc.get(key) ?? { active: 0, closed: 0 };
+        if (v.status === 'active') cur.active += 1;
+        if (
+          v.status === 'closed' &&
+          v.closed_at &&
+          v.closed_at >= from &&
+          v.closed_at <= to
+        ) {
+          cur.closed += 1;
+        }
+        cityAcc.set(key, cur);
+      }
+      const cities: CityBreakdown[] = Array.from(cityAcc.entries())
+        .map(([location, agg]) => ({ location, active: agg.active, closed: agg.closed }))
+        .sort((a, b) => b.active + b.closed - (a.active + a.closed));
+
       return {
         subdivision,
         active_vacancies: list.filter((v) => v.status === 'active').length,
@@ -154,6 +184,7 @@ export async function GET(request: NextRequest) {
         // План задаётся по менеджеру, а не по подразделению — агрегата нет.
         plan_completion_pct: null,
         funnel,
+        cities,
         vacancies: vacancyDetails,
       };
     });

@@ -52,6 +52,11 @@ interface DivisionVacancy {
   days_open: number;
   funnel_mini: FunnelMini;
 }
+interface CityBreakdown {
+  location: string;
+  active: number;
+  closed: number;
+}
 interface Division {
   subdivision: string;
   active_vacancies: number;
@@ -60,6 +65,7 @@ interface Division {
   interns: number;
   hired_in_period: number;
   funnel: FunnelMini;
+  cities: CityBreakdown[];
   vacancies: DivisionVacancy[];
 }
 interface DivisionsResponse {
@@ -179,6 +185,26 @@ function DivisionRow({ division: d }: { division: Division }) {
           <span>Стажировка: {d.funnel.interns}</span>
           <span>Трудоустройство: {d.funnel.hired}</span>
         </div>
+
+        {/* Разбивка по городам (vacancies.location). «Закрытые» — за выбранный period. */}
+        {d.cities.length > 0 && (
+          <div className="mb-4">
+            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              По городам
+            </h3>
+            <ul className="grid gap-1 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              {d.cities.map((c) => (
+                <li key={c.location} className="flex items-baseline gap-1.5">
+                  <span className="font-medium">{c.location}</span>
+                  <span className="text-muted-foreground">—</span>
+                  <span className="text-muted-foreground">
+                    {c.active} активных, {c.closed} закрытых
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {d.vacancies.length === 0 ? (
           <p className="text-muted-foreground text-sm">Нет вакансий.</p>
