@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation';
 import { isRedirectError } from 'next/dist/client/components/redirect-error';
 
 import { createClient } from '@/lib/supabase/server';
-import { navItemsForRole } from '@/lib/nav';
 import type { Role } from '@/types';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { Header } from '@/components/layout/Header';
@@ -50,7 +49,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }
 
     const role = profile.role as Role;
-    const items = navItemsForRole(role);
 
     return (
       <div className="grid min-h-screen md:grid-cols-[16rem_1fr]">
@@ -58,7 +56,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <aside className="bg-sidebar text-sidebar-foreground hidden flex-col border-r md:flex">
           <div className="flex h-14 items-center border-b px-6 font-semibold">HR Control Tower</div>
           <div className="flex-1 overflow-y-auto py-3">
-            <SidebarNav items={items} />
+            <SidebarNav role={role} />
           </div>
         </aside>
 

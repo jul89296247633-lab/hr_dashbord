@@ -6,7 +6,7 @@ import { Menu, LogOut, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { createClient } from '@/lib/supabase/client';
-import { navItemsForRole, roleLabel } from '@/lib/nav';
+import { roleLabel } from '@/lib/nav';
 import type { Role } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,7 +29,6 @@ import { SidebarNav } from '@/components/layout/SidebarNav';
 export function Header({ role, fullName }: { role: Role; fullName: string }) {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const items = navItemsForRole(role);
 
   async function handleLogout() {
     const supabase = createClient();
@@ -60,7 +59,7 @@ export function Header({ role, fullName }: { role: Role; fullName: string }) {
             <SheetTitle>HR Control Tower</SheetTitle>
           </SheetHeader>
           <div className="py-3">
-            <SidebarNav items={items} onNavigate={() => setMobileOpen(false)} />
+            <SidebarNav role={role} onNavigate={() => setMobileOpen(false)} />
           </div>
         </SheetContent>
       </Sheet>

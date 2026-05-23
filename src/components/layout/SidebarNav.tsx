@@ -1,20 +1,30 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { cn } from '@/lib/utils';
-import { activeHref, type NavItem } from '@/lib/nav';
+import { activeHref, navItemsForRole } from '@/lib/nav';
+import type { Role } from '@/types';
 
-/** Список ссылок навигации с подсветкой активного пункта. */
+/**
+ * Список ссылок навигации с подсветкой активного пункта.
+ *
+ * Принимает `role`, а не уже посчитанные `items` — потому что NavItem содержит
+ * `icon: LucideIcon` (React-компонент / функция), и передача массива из Server
+ * Component уронила бы RSC-границу с «Functions cannot be passed directly to
+ * Client Components». Вычисляем items внутри клиента.
+ */
 export function SidebarNav({
-  items,
+  role,
   onNavigate,
 }: {
-  items: NavItem[];
+  role: Role;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const items = useMemo(() => navItemsForRole(role), [role]);
   const active = activeHref(items, pathname);
 
   return (
