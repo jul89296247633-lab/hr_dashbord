@@ -217,7 +217,17 @@ export async function POST() {
         continue;
       }
 
-      const location = (row.values['Населённый пункт'] ?? '').trim() || null;
+      // Заголовок колонки города в листе исторически плавает: «Населённый пункт»
+      // (с «ё»), «Населенный пункт» (без), «Город», «Местоположение». Пробуем
+      // все варианты — берём первый непустой.
+      const location =
+        (
+          row.values['Населённый пункт'] ??
+          row.values['Населенный пункт'] ??
+          row.values['Город'] ??
+          row.values['Местоположение'] ??
+          ''
+        ).trim() || null;
       const hhVacancyId = pickDigits(row.values['ID HH']);
       const subdivision = (row.values['Подразделение'] ?? '').trim() || null;
       const customerName = (row.values['ФИО Заказчика'] ?? '').trim() || null;
