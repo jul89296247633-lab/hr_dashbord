@@ -84,6 +84,13 @@ export async function POST() {
     for (const row of managerRows) {
       const name = pickName(row);
       if (!name) continue;
+      // Фильтр строк-заголовков и мусорных значений.
+      // 'HR менеджеры' / 'Нг менеджеры' — попадали в таблицу как «менеджер»
+      // когда лист начинался без заголовка или с дублирующей строкой.
+      if (isHeaderLikeManagerName(name)) {
+        console.log('DEBUG skip header-like manager row:', name);
+        continue;
+      }
       const emailFromSheet = pickEmail(row);
       let userProfileId =
         (emailFromSheet ? profileByEmail.get(emailFromSheet.toLowerCase()) : undefined) ??
@@ -93,20 +100,35 @@ export async function POST() {
       // Авто-создание пользователя, если профиль не найден.
       // user_profiles создаст триггер handle_new_user из user_metadata —
       // ручной INSERT не нужен (был бы дубль/конфликт по PK).
-      // Идемпотентно: сначала ищем профиль по fallback-email, потом createUser.
+      // Идемпотентно: ищем профиль по обоим email-кандидатам (sheet + fallback)
+      // регистронезависимо (ilike), и только потом — createUser.
       if (!userProfileId) {
-        const fallbackEmail = (emailFromSheet || emailFromName(name)).toLowerCase();
-        const { data: existingByEmail } = await db
-          .from('user_profiles')
-          .select('id')
-          .eq('email', fallbackEmail)
-          .maybeSingle();
+        const fallbackEmail = emailFromName(name);
+        const candidates = Array.from(
+          new Set(
+            [emailFromSheet?.toLowerCase(), fallbackEmail].filter(
+              (e): e is string => Boolean(e),
+            ),
+          ),
+        );
 
-        if (existingByEmail?.id) {
-          userProfileId = existingByEmail.id;
-        } else {
+        for (const candidate of candidates) {
+          const { data: existing } = await db
+            .from('user_profiles')
+            .select('id')
+            .ilike('email', candidate)
+            .maybeSingle();
+          if (existing?.id) {
+            userProfileId = existing.id;
+            console.log('DEBUG attach existing by email:', candidate, '→', userProfileId);
+            break;
+          }
+        }
+
+        if (!userProfileId) {
+          const createEmail = (emailFromSheet || fallbackEmail).toLowerCase();
           const { data: created, error: createErr } = await db.auth.admin.createUser({
-            email: fallbackEmail,
+            email: createEmail,
             password: crypto.randomUUID(),
             email_confirm: true,
             user_metadata: { full_name: name, role: 'manager' },
@@ -114,15 +136,15 @@ export async function POST() {
           if (createErr) {
             console.log(
               'DEBUG createUser failed:', createErr.message,
-              'name:', name, 'email:', fallbackEmail,
+              'name:', name, 'email:', createEmail,
             );
           } else if (created?.user?.id) {
             userProfileId = created.user.id;
             createdUsers += 1;
             // Прогрев кэшей, чтобы повторы в этой же sync-сессии находили его.
             profileByName.set(name.toLowerCase(), userProfileId);
-            profileByEmail.set(fallbackEmail, userProfileId);
-            console.log('DEBUG created user:', userProfileId, fallbackEmail);
+            profileByEmail.set(createEmail, userProfileId);
+            console.log('DEBUG created user:', userProfileId, createEmail);
           }
         }
       }
@@ -420,6 +442,15 @@ function pickActive(row: SheetRow): boolean {
   const raw = (row.values['Активен'] || row.values['Статус'] || '').toLowerCase().trim();
   if (!raw) return true;
   return !/неактив|уволен|нет|false|0/.test(raw);
+}
+
+/** Фильтр строк-заголовков, попадающих в лист HR-менеджеров.
+ *  'HR менеджеры' — латиница, 'Нг менеджеры' — кириллический омоглиф
+ *  («Н»=H, «г»=r). Также режем явно слишком короткие значения (< 5 симв.). */
+function isHeaderLikeManagerName(name: string): boolean {
+  const normalized = name.trim().toLowerCase();
+  if (normalized.length < 5) return true;
+  return normalized === 'hr менеджеры' || normalized === 'нг менеджеры';
 }
 
 // ── Хелперы для парсинга колонок листа «Data» ───────────────────────────────
