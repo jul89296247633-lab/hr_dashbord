@@ -175,6 +175,12 @@ export async function POST() {
         ? profileByNormName.get(normalizeFullName(firstManager)) ?? null
         : null;
       if (!managerId) {
+        console.log('DEBUG skip manager:', JSON.stringify({
+          row: row.rowIndex,
+          name: firstManager,
+          normalized: normalizeFullName(firstManager),
+          availableKeys: [...profileByNormName.keys()].slice(0, 10),
+        }));
         skippedManagersInVacancies.push({ row: row.rowIndex, name: firstManager || '(пусто)' });
         continue;
       }
