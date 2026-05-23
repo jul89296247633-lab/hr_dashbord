@@ -141,6 +141,7 @@ export async function POST() {
     const profileByNormName = new Map(
       (profiles ?? []).map((p) => [normalizeFullName(p.full_name), p.id]),
     );
+    console.log('DEBUG profileByNormName keys:', [...profileByNormName.keys()]);
 
     let vacanciesUpserted = 0;
     let closed = 0;
