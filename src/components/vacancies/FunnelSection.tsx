@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ChevronRight, Clock, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,7 +19,14 @@ const STAGE_LABEL: Record<string, string> = {
   invitations_sent: 'Приглашения',
   calls: 'Звонки',
   interviews: 'Собеседования',
-  hired: 'Найм',
+  interns: 'Стажировка',
+  hired: 'Выведено',
+};
+
+/** Промежуточные этапы выделяем amber-tint — визуально отличаем от
+ *  «финальных» событий (выведение, отклик) и стандартного потока. */
+const STAGE_TINT: Record<string, string> = {
+  interns: 'border-amber-300 bg-amber-50 text-amber-900',
 };
 
 interface FunnelStage {
@@ -99,7 +107,7 @@ export function FunnelSection({
 
       {loading ? (
         <div className="flex gap-2">
-          {Array.from({ length: 6 }).map((_, i) => (
+          {Array.from({ length: 7 }).map((_, i) => (
             <Skeleton key={i} className="h-20 w-28" />
           ))}
         </div>
@@ -108,10 +116,15 @@ export function FunnelSection({
           <div className="flex flex-wrap items-center gap-1">
             {(data?.funnel ?? []).map((s, i, arr) => (
               <div key={s.stage} className="flex items-center gap-1">
-                <Card className="w-28 py-3">
+                <Card className={cn('w-28 py-3', STAGE_TINT[s.stage])}>
                   <CardContent className="px-3 text-center">
                     <div className="text-2xl font-semibold leading-none">{s.count}</div>
-                    <div className="text-muted-foreground mt-1 text-xs">
+                    <div
+                      className={cn(
+                        'mt-1 text-xs',
+                        STAGE_TINT[s.stage] ? '' : 'text-muted-foreground',
+                      )}
+                    >
                       {STAGE_LABEL[s.stage] ?? s.stage}
                     </div>
                   </CardContent>

@@ -14,11 +14,12 @@ import type { FunnelStage, Period } from '@/types';
 /**
  * GET /api/vacancies/[id]/funnel
  * Воронка по вакансии: responses → contacts_opened → invitations_sent →
- * calls → interviews → hired. Конверсия = доля перехода в следующий этап.
+ * calls → interviews → interns → hired. Конверсия = доля перехода в следующий этап.
  *
  * HH-этапы (responses/contacts/invitations) — из последнего vacancy_snapshots.
  * calls/interviews — по менеджеру вакансии за период (агрегат daily_activities).
- * hired — трудоустроенные (employment_type='employee') по вакансии за период.
+ * interns — кандидаты на стажировке (hired_employees.status='probation') за период.
+ * hired   — трудоустроенные (hired_employees.status='hired') за период.
  *
  * RLS: чужая вакансия для manager не видна → 404 (EC-07, без раскрытия факта).
  */
@@ -83,16 +84,27 @@ export async function GET(
       0,
     );
 
-    // Трудоустроенные по вакансии за период.
+    // Трудоустроенные (status='hired') по вакансии за период.
     let hiredQuery = supabase
       .from('hired_employees')
       .select('id', { count: 'exact', head: true })
       .eq('vacancy_id', id)
-      .eq('employment_type', 'employee');
+      .eq('status', 'hired');
     if (from) hiredQuery = hiredQuery.gte('hired_date', from);
     if (to) hiredQuery = hiredQuery.lte('hired_date', to);
     const { count: hiredCount, error: hiredError } = await hiredQuery;
     if (hiredError) throw new ApiError(500, 'DB_ERROR', hiredError.message);
+
+    // Стажёры (status='probation') по вакансии за период.
+    let internQuery = supabase
+      .from('hired_employees')
+      .select('id', { count: 'exact', head: true })
+      .eq('vacancy_id', id)
+      .eq('status', 'probation');
+    if (from) internQuery = internQuery.gte('hired_date', from);
+    if (to) internQuery = internQuery.lte('hired_date', to);
+    const { count: internCount, error: internError } = await internQuery;
+    if (internError) throw new ApiError(500, 'DB_ERROR', internError.message);
 
     // Этапы по порядку; conversion_pct[i] = count[i+1] / count[i].
     const counts: { stage: string; count: number }[] = [
@@ -101,6 +113,7 @@ export async function GET(
       { stage: 'invitations_sent', count: snapshot?.invitations_sent ?? 0 },
       { stage: 'calls', count: calls },
       { stage: 'interviews', count: interviews },
+      { stage: 'interns', count: internCount ?? 0 },
       { stage: 'hired', count: hiredCount ?? 0 },
     ];
 

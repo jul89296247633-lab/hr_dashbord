@@ -126,7 +126,12 @@ export async function POST() {
     //   K  «Дата открытия»              → vacancies.opened_at
     //   L  «Месяц закрытия»             — игнорируем
     //   M  «Дата закрытия»              → vacancies.closed_at (+ hired_employees.hired_date)
-    //   N  (пустой заголовок)            → vacancies.status: 'Закрыта' → 'closed', иначе 'active'
+    //   N  (пустой заголовок)            → vacancies.status и/или запись в hired_employees:
+    //          • 'Закрыта'    → vacancies.status='closed', closed_at=M;
+    //                            hired_employees: employment_type='employee', status='hired'
+    //          • 'стажировка' → vacancies.status='active', closed_at=NULL (НЕ закрываем);
+    //                            hired_employees: employment_type='intern', status='probation'
+    //          • иначе        → vacancies.status='active'; hired_employees не пишется
     //   O  «Менеджеры»                  → vacancies.manager_id (через user_profiles.full_name,
     //                                     первый из списка если через запятую/точку-с-запятой)
     //   P  «Кол-во дней в работе»       — игнорируем
@@ -149,6 +154,7 @@ export async function POST() {
 
     let vacanciesUpserted = 0;
     let closed = 0;
+    let probation = 0;
     const skippedManagersInVacancies: { row: number; name: string }[] = [];
     const skippedNoTitle: number[] = [];
 
@@ -168,6 +174,8 @@ export async function POST() {
       const closedDate = parseSheetDate(row.cells[12] ?? ''); // M
       const statusCellRaw = (row.cells[13] ?? '').toLowerCase().trim(); // N (пустой заголовок)
       const isClosed = statusCellRaw === 'закрыта';
+      // SPEC §5.3: «стажировка» — промежуточный этап. Вакансия НЕ закрывается.
+      const isProbation = statusCellRaw === 'стажировка';
       const status = isClosed ? 'closed' : 'active';
 
       // O — «Менеджеры»: «Иванов И.И., Петров П.П.» → берём первого.
@@ -182,6 +190,8 @@ export async function POST() {
       }
 
       // Базовый payload (общий для INSERT и UPDATE).
+      // closed_at: для probation/active явно NULL (вакансия не закрыта);
+      // для closed — берём дату закрытия из колонки M.
       const payload = {
         hh_vacancy_id: hhVacancyId,
         title,
@@ -192,7 +202,7 @@ export async function POST() {
         manager_id: managerId,
         status,
         opened_at: openedAt ?? undefined, // не перетираем NOT NULL пустым значением
-        closed_at: closedDate, // nullable — пишем как есть
+        closed_at: isClosed ? closedDate : null,
         google_sheet_row: row.rowIndex,
       };
 
@@ -226,21 +236,32 @@ export async function POST() {
       }
       vacanciesUpserted += 1;
 
-      // Дополнительно: закрытые → hired_employees (для бонусов и истории найма).
-      if (isClosed && closedDate && vacancyId) {
-        await db.from('hired_employees').upsert(
-          {
-            sheet_row_id: row.rowIndex,
-            vacancy_id: vacancyId,
-            position_name: title,
-            hired_date: closedDate,
-            employment_type: 'employee',
-            manager_name_sheet: firstManager || null,
-            synced_at: new Date().toISOString(),
-          },
-          { onConflict: 'sheet_row_id' },
-        );
-        closed += 1;
+      // Дополнительно: пишем в hired_employees для двух статусов воронки:
+      //  - 'Закрыта'    → employment_type='employee', status='hired',  hired_date = M
+      //  - 'стажировка' → employment_type='intern',   status='probation',
+      //                    hired_date = M (если есть) иначе openedAt иначе сегодня.
+      if ((isClosed && closedDate) || isProbation) {
+        if (vacancyId) {
+          const employmentType = isProbation ? 'intern' : 'employee';
+          const heStatus = isProbation ? 'probation' : 'hired';
+          const hiredDate =
+            closedDate ?? openedAt ?? new Date().toISOString().slice(0, 10);
+          await db.from('hired_employees').upsert(
+            {
+              sheet_row_id: row.rowIndex,
+              vacancy_id: vacancyId,
+              position_name: title,
+              hired_date: hiredDate,
+              employment_type: employmentType,
+              status: heStatus,
+              manager_name_sheet: firstManager || null,
+              synced_at: new Date().toISOString(),
+            },
+            { onConflict: 'sheet_row_id' },
+          );
+          if (isProbation) probation += 1;
+          else closed += 1;
+        }
       }
     }
 
@@ -296,6 +317,7 @@ export async function POST() {
         status: 'ok',
         vacancies_upserted: vacanciesUpserted,
         closed,
+        probation,
         // skipped_no_title: строки листа без названия (или короче 2 символов).
         skipped_no_title: skippedNoTitle.length,
         // skipped_no_manager: ФИО из колонки «Менеджеры» не найдено в user_profiles.

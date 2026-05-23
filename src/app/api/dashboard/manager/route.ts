@@ -92,10 +92,12 @@ export async function GET(request: NextRequest) {
     if (vacError) throw new ApiError(500, 'DB_ERROR', vacError.message);
 
     // Найм за период (через вакансии менеджера).
+    // Берём ВСЕ записи (probation + hired) одним запросом и фильтруем в памяти —
+    // дальше отдельно считаем «выведено» и «на стажировке» (SPEC §5.3).
     const { data: hired, error: hiredError } = await supabase
       .from('hired_employees')
-      .select('hired_date, vacancy:vacancies!hired_employees_vacancy_id_fkey(manager_id)')
-      .eq('employment_type', 'employee')
+      .select('hired_date, status, vacancy:vacancies!hired_employees_vacancy_id_fkey(manager_id)')
+      .in('status', ['hired', 'probation'])
       .gte('hired_date', from as string)
       .lte('hired_date', to as string);
     if (hiredError) throw new ApiError(500, 'DB_ERROR', hiredError.message);
@@ -103,6 +105,8 @@ export async function GET(request: NextRequest) {
     const hiredForManager = (hired ?? []).filter(
       (h) => h.vacancy?.manager_id === targetManagerId,
     );
+    const hiredOnly = hiredForManager.filter((h) => h.status === 'hired');
+    const probationOnly = hiredForManager.filter((h) => h.status === 'probation');
 
     // Факты.
     const callsFact = (activities ?? []).reduce(
@@ -110,7 +114,8 @@ export async function GET(request: NextRequest) {
       0,
     );
     const interviewsFact = (activities ?? []).reduce((s, a) => s + (a.interviews_count ?? 0), 0);
-    const hiredFact = hiredForManager.length;
+    const hiredFact = hiredOnly.length;
+    const probationFact = probationOnly.length;
 
     const kpi = {
       calls: kpiMetric(callsFact, plan.calls_per_day * workdays),
@@ -119,9 +124,9 @@ export async function GET(request: NextRequest) {
       hires: kpiMetric(hiredFact, scaledHiresPlan(plan.hires_per_month, from as string, to as string)),
     };
 
-    // Найм по дням.
+    // Найм по дням (только status='hired'; стажировка считается отдельным счётчиком).
     const hiredByDate = new Map<string, number>();
-    for (const h of hiredForManager) {
+    for (const h of hiredOnly) {
       hiredByDate.set(h.hired_date, (hiredByDate.get(h.hired_date) ?? 0) + 1);
     }
 
@@ -143,6 +148,9 @@ export async function GET(request: NextRequest) {
         period,
         kpi,
         active_vacancies_count: activeVacancies ?? 0,
+        // SPEC §5.3 / Блок 3.1: «На стажировке» — счётчик без плана,
+        // только факт (промежуточный этап воронки).
+        probation_count: probationFact,
         by_day,
       },
     });

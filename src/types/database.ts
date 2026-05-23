@@ -246,6 +246,7 @@ export type Database = {
           position_name: string;
           hired_date: string;
           employment_type: string;
+          status: string; // 'hired' | 'probation'
           manager_name_sheet: string | null;
           synced_at: string;
           created_at: string;
@@ -258,6 +259,7 @@ export type Database = {
           position_name: string;
           hired_date: string;
           employment_type?: string;
+          status?: string;
           manager_name_sheet?: string | null;
           synced_at?: string;
           created_at?: string;
@@ -270,6 +272,7 @@ export type Database = {
           position_name?: string;
           hired_date?: string;
           employment_type?: string;
+          status?: string;
           manager_name_sheet?: string | null;
           synced_at?: string;
           created_at?: string;

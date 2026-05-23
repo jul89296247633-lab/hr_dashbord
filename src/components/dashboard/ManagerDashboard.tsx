@@ -1,7 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Phone, Users, UserCheck, Briefcase, type LucideIcon } from 'lucide-react';
+import {
+  AlertCircle,
+  Phone,
+  Users,
+  UserCheck,
+  Briefcase,
+  GraduationCap,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import type { Role, ManagerStatus, KpiMetricWithStatus } from '@/types';
@@ -39,6 +47,8 @@ interface ManagerDashboardData {
   period: string;
   kpi: { calls: KpiMetricWithStatus; interviews: KpiMetricWithStatus; hires: KpiMetricWithStatus };
   active_vacancies_count: number;
+  /** Промежуточный этап воронки (SPEC §5.3): счётчик без плана, только факт. */
+  probation_count: number;
   by_day: ByDay[];
 }
 
@@ -162,10 +172,11 @@ export function ManagerDashboard({ role, selfId }: { role: Role; selfId: string 
             Активных вакансий: <span className="font-medium">{data.active_vacancies_count}</span>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard icon={Phone} label="Звонки" metric={data.kpi.calls} />
             <KpiCard icon={Users} label="Собеседования" metric={data.kpi.interviews} />
             <KpiCard icon={UserCheck} label="Выведено" metric={data.kpi.hires} />
+            <ProbationCard count={data.probation_count} />
           </div>
 
           <Card>
@@ -238,11 +249,30 @@ function KpiCard({
   );
 }
 
+/** Промежуточный этап воронки (SPEC §5.3): без плана — только факт.
+ *  Визуально выделен amber-тинтом, чтобы отличить от плановых KPI. */
+function ProbationCard({ count }: { count: number }) {
+  return (
+    <Card className="border-amber-300 bg-amber-50">
+      <CardContent className="grid gap-2">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-2 text-sm font-medium text-amber-900">
+            <GraduationCap className="size-4" />
+            На стажировке
+          </span>
+        </div>
+        <div className="text-2xl font-semibold text-amber-900">{count}</div>
+        <p className="text-xs text-amber-800">Промежуточный этап — без плана</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ManagerSkeleton() {
   return (
     <div className="grid gap-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, i) => (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-28 w-full" />
         ))}
       </div>

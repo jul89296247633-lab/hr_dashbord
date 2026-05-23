@@ -3143,15 +3143,19 @@ function calcManagerStatus(
 | `invitations_sent` | `vacancy_snapshots.invitations_sent` (HH API, `counters.invitations`) | По вакансии ✓ | Авто |
 | `calls` | `SUM(COALESCE(mango_calls_count,0) + COALESCE(hh_calls_count,0))` по менеджеру | По менеджеру ⚠️ | Манго cron + HH CSV |
 | `interviews` | `SUM(daily_activities.interviews_count)` по менеджеру (ручной ввод) | По менеджеру ⚠️ | Ручной |
-| `interns` | `COUNT(hired_employees WHERE vacancy_id=[id] AND employment_type='intern')` | По вакансии ✓ | Sheets |
-| `hired` | `COUNT(hired_employees WHERE vacancy_id=[id] AND employment_type='employee')` | По вакансии ✓ | Sheets |
+| `interns` | `COUNT(hired_employees WHERE vacancy_id=[id] AND status='probation')` | По вакансии ✓ | Sheets |
+| `hired` | `COUNT(hired_employees WHERE vacancy_id=[id] AND status='hired')` | По вакансии ✓ | Sheets |
 
 **Правило стажировки:**
-- Кандидат со статусом «стажировка» в Sheets → `employment_type = 'intern'`
+- Кандидат со статусом «стажировка» в Sheets → `employment_type = 'intern'` **и** `status = 'probation'`
+  (миграция `20260523160000_*`: status TEXT NOT NULL DEFAULT 'hired' CHECK IN ('hired', 'probation'))
 - В воронке занимает этап **«Стажировка»** — между собеседованием и трудоустройством
-- Вакансия НЕ считается закрытой пока `employment_type = 'intern'` (статус в `vacancies` остаётся `active` или `paused`)
-- Когда статус меняется с «стажировка» на «закрыта» в Sheets → следующая синхронизация переводит запись в `employment_type = 'employee'` и закрывает вакансию
-- В дашборде: у стажёров отдельный счётчик «На стажировке: 3» рядом со счётчиком «Выведено»
+- Вакансия НЕ закрывается: `vacancies.status` остаётся `active`/`paused`, `closed_at = NULL`
+- Когда HR меняет статус в Sheets с «стажировка» на «закрыта» → следующая синхронизация
+  (upsert по `sheet_row_id`) переводит ту же запись в `employment_type='employee'`, `status='hired'`
+  и одновременно `vacancies.status='closed'`, `closed_at = M`
+- В дашборде менеджера: счётчик «На стажировке: 3» отдельным KPI-блоком рядом с «Выведено»
+  (без плана — только факт, промежуточный этап воронки)
 
 ⚠️ **Звонки и собеседования агрегируются по менеджеру, не по вакансии** — менеджер ведёт
 несколько вакансий одновременно. Для оценки воронки конкретной вакансии
