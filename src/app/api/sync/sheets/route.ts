@@ -149,8 +149,16 @@ export async function POST() {
     const skippedNoTitle: number[] = [];
 
     for (const row of vacancyRows) {
+      console.log(
+        'DEBUG processing row:', row.rowIndex,
+        'status:', row.values['Статус'],
+        'manager:', row.values['Менеджеры'],
+        'hhId:', row.values['ID HH'],
+      );
+
       const title = (row.values['Название вакансии'] ?? '').trim();
       if (title.length < 2) {
+        console.log('DEBUG skip reason:', 'no_title', 'row:', row.rowIndex);
         skippedNoTitle.push(row.rowIndex);
         continue;
       }
