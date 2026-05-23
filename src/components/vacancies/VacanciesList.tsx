@@ -44,6 +44,7 @@ interface VacancyRow {
   title: string;
   department: string | null;
   subdivision: string | null;
+  location: string | null;
   status: string;
   opened_at: string;
   manager?: { id: string; full_name: string; is_active?: boolean } | null;
@@ -138,6 +139,7 @@ export function VacanciesList({ role }: { role: Role }) {
               <TableRow>
                 <TableHead>Название</TableHead>
                 <TableHead>Подразделение</TableHead>
+                <TableHead>Город</TableHead>
                 {showManager && <TableHead>Менеджер</TableHead>}
                 <TableHead>Статус</TableHead>
                 <TableHead>Открыта</TableHead>
@@ -152,6 +154,7 @@ export function VacanciesList({ role }: { role: Role }) {
                     </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{v.subdivision ?? '—'}</TableCell>
+                  <TableCell className="text-muted-foreground">{v.location ?? '—'}</TableCell>
                   {showManager && (
                     <TableCell>
                       <ManagerName name={v.manager?.full_name} isActive={v.manager?.is_active} />

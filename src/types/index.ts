@@ -82,6 +82,7 @@ export interface Vacancy {
   title: string;
   department: string | null;
   subdivision: string | null;
+  location: string | null;
   manager_id: string;
   status: VacancyStatus;
   opened_at: string;
