@@ -99,13 +99,15 @@ export function EfficiencyClient() {
     setLoading(true);
     setError(null);
     try {
-      // politeness и bonuses/summary не принимают 'today' — маппим в 'week'
+      // politeness не принимает 'today' — маппим в 'week'
       // (review 4.5 #4: politeness иначе тихо отдаёт 30 дней по умолчанию).
+      // Бонусы — всегда за текущий календарный месяц, независимо от селектора
+      // периода страницы: они начисляются по факту найма за месяц (SPEC §5.3).
       const altPeriod = period === 'today' ? 'week' : period;
       const [t, p, b] = await Promise.all([
         fetchData<TeamResponse>(`/api/dashboard/team?period=${period}`),
         fetchData<PolitenessData>(`/api/stats/politeness?period=${altPeriod}`),
-        fetchData<BonusSummary[]>(`/api/bonuses/summary?period=${altPeriod}`),
+        fetchData<BonusSummary[]>(`/api/bonuses/summary?period=month`),
       ]);
       setTeam(t);
       setPoliteness(p);
@@ -226,8 +228,8 @@ export function EfficiencyClient() {
                   <TableHead>Собеседования</TableHead>
                   <TableHead>Выведено</TableHead>
                   <TableHead>ИВ</TableHead>
-                  <TableHead>Бонусов</TableHead>
                   <TableHead>Статус</TableHead>
+                  <TableHead className="text-right">Бонус за месяц</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -267,7 +269,6 @@ export function EfficiencyClient() {
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell>{formatKopecks(bonusKopecks)}</TableCell>
                       <TableCell>
                         <span
                           className={cn(
@@ -277,6 +278,16 @@ export function EfficiencyClient() {
                         >
                           {status.label}
                         </span>
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          'text-right tabular-nums',
+                          bonusKopecks > 0
+                            ? 'font-medium text-green-600'
+                            : 'text-muted-foreground',
+                        )}
+                      >
+                        {bonusKopecks > 0 ? formatKopecks(bonusKopecks) : '—'}
                       </TableCell>
                     </TableRow>
                   );

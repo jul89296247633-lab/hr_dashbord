@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { KpiBar } from '@/components/cabinet/KpiBar';
 import { DatePicker } from '@/components/cabinet/DatePicker';
 import { ActivityForm } from '@/components/cabinet/ActivityForm';
+import { MyBonusCard } from '@/components/cabinet/MyBonusCard';
 import type { CabinetActivity, CabinetPlan } from '@/components/cabinet/types';
 
 export function CabinetClient({
@@ -52,6 +53,9 @@ export function CabinetClient({
           />
         </CardContent>
       </Card>
+
+      {/* Бонус за текущий месяц */}
+      <MyBonusCard />
 
       {/* Предупреждение: звонки ещё не получены */}
       {showCallsAlert && (
