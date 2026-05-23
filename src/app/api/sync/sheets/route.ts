@@ -333,6 +333,15 @@ export async function POST() {
       }
     }
 
+    // DEBUG (временно): сводка цикла Data — куда делись строки.
+    console.log('SYNC RESULT:', {
+      total_rows: vacancyRows.length,
+      vacancies_upserted: vacanciesUpserted,
+      skipped_no_title: skippedNoTitle.length,
+      skipped_no_manager: skippedManagersInVacancies.length,
+      skipped_managers_list: skippedManagersInVacancies.slice(0, 20),
+    });
+
     // ── Бонусы_HR → bonus_rates (справочник «Должность → Стоимость») ────────
     // SPEC §5.3 / §5.6: лист «Бонусы_HR» хранит тарифы закрытия должности,
     // а не журнал начислений. Бонус менеджера считается на лету в
