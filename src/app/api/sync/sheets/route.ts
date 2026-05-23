@@ -110,51 +110,32 @@ export async function POST() {
       (syncs ?? []).map((s) => [s.sheet_full_name.trim().toLowerCase(), s]),
     );
 
-    // ── Data → vacancies (upsert ВСЕ) + hired_employees (только закрытые) ────
+    // ── Data → vacancies (upsert ВСЕ) + hired_employees (закрытые / стажировка) ─
     //
-    // Маппинг колонок листа «Data» (строка 1 — заголовки):
-    //   A  «Название вакансии»          → vacancies.title
-    //   B  «Населённый пункт»           → vacancies.location
-    //   C  «ID HH»                       → vacancies.hh_vacancy_id (опционально)
-    //   D  «Формат поиска ...»          — игнорируем
-    //   E  «Причина появления вакансии» — игнорируем
-    //   F  «Расширенное описание ...»   — игнорируем
-    //   G  «Подразделение»              → vacancies.subdivision
-    //   H  «ФИО Заказчика»              → vacancies.customer_name
-    //   I  «Приоритет»                  — игнорируем
-    //   J  «Кол-во»                      → vacancies.positions_count (default 1)
-    //   K  «Дата открытия»              → vacancies.opened_at
-    //   L  «Месяц закрытия»             — игнорируем
-    //   M  «Дата закрытия»              → vacancies.closed_at (+ hired_employees.hired_date)
-    //   N  (пустой заголовок)            → vacancies.status и/или запись в hired_employees:
-    //          • 'Закрыта'    → vacancies.status='closed', closed_at=M;
-    //                            hired_employees: employment_type='employee', status='hired'
-    //          • 'стажировка' → vacancies.status='active', closed_at=NULL (НЕ закрываем);
-    //                            hired_employees: employment_type='intern', status='probation'
-    //          • иначе        → vacancies.status='active'; hired_employees не пишется
-    //   O  «Менеджеры»                  → vacancies.manager_id (через user_profiles.full_name,
-    //                                     первый из списка если через запятую/точку-с-запятой)
-    //   P  «Кол-во дней в работе»       — игнорируем
-    //   Q  «ФИО кандидата»              — игнорируем
-    //   R  «Комментарий»                — игнорируем
+    // Доступ к колонкам — по заголовкам через row.values[...], чтобы парсер
+    // не ломался при сдвиге/добавлении колонок в Google Sheets.
     //
-    // Upsert vacancies:
-    //   - hh_vacancy_id заполнен → upsert по hh_vacancy_id
-    //   - иначе → find by (title, manager_id) → UPDATE / INSERT
+    //   «Название вакансии»  → vacancies.title
+    //   «Населённый пункт»   → vacancies.location
+    //   «ID HH»              → vacancies.hh_vacancy_id (опционально)
+    //   «Подразделение»      → vacancies.subdivision
+    //   «ФИО Заказчика»      → vacancies.customer_name
+    //   «Кол-во»             → vacancies.positions_count (default 1)
+    //   «Дата открытия»      → vacancies.opened_at
+    //   «Дата закрытия»      → vacancies.closed_at (+ hired_employees.hired_date)
+    //   «Статус»             → ветка обработки:
+    //     • 'Закрыта'    → vacancies.status='closed', closed_at=«Дата закрытия»;
+    //                      hired_employees: employment_type='employee', status='hired'
+    //     • 'стажировка' → vacancies.status='active', closed_at=NULL (не закрываем);
+    //                      hired_employees: employment_type='intern', status='probation'
+    //     • иначе        → vacancies.status='active'; hired_employees не пишется
+    //   «Менеджеры»          → vacancies.manager_id (через user_profiles.full_name,
+    //                          первый из списка если через запятую/точку-с-запятой)
     //
-    // Для строк со статусом 'Закрыта' дополнительно пишем в hired_employees
-    // (sheet_row_id как ключ — идемпотентно).
+    // Upsert vacancies: hh_vacancy_id заполнен → upsert по hh_vacancy_id;
+    // иначе → find by (title, manager_id) → UPDATE / INSERT.
 
     const vacancyRows = await readSheetTab(VACANCIES_TAB());
-
-    // DEBUG (временно): структура первых строк листа Data.
-    console.log('DEBUG VACANCIES_TAB:', VACANCIES_TAB());
-    console.log('DEBUG total rows:', vacancyRows.length);
-    console.log('DEBUG row[0]:', JSON.stringify(vacancyRows[0]));
-    console.log('DEBUG row[1]:', JSON.stringify(vacancyRows[1]));
-    console.log('DEBUG row[2]:', JSON.stringify(vacancyRows[2]));
-    console.log('DEBUG row[0].cells[13]:', vacancyRows[0]?.cells?.[13]);
-    console.log('DEBUG row[0].cells length:', vacancyRows[0]?.cells?.length);
 
     // Карта активных user_profiles по нормализованному ФИО (для поиска manager_id).
     const profileByNormName = new Map(
@@ -168,27 +149,27 @@ export async function POST() {
     const skippedNoTitle: number[] = [];
 
     for (const row of vacancyRows) {
-      const title = (row.cells[0] ?? '').trim(); // A
+      const title = (row.values['Название вакансии'] ?? '').trim();
       if (title.length < 2) {
         skippedNoTitle.push(row.rowIndex);
         continue;
       }
 
-      const location = (row.cells[1] ?? '').trim() || null; // B
-      const hhVacancyId = pickDigits(row.cells[2]); // C — только цифры или null
-      const subdivision = (row.cells[6] ?? '').trim() || null; // G
-      const customerName = (row.cells[7] ?? '').trim() || null; // H
-      const positionsCount = pickPositiveInt(row.cells[9]) ?? 1; // J
-      const openedAt = parseSheetDate(row.cells[10] ?? ''); // K
-      const closedDate = parseSheetDate(row.cells[12] ?? ''); // M
-      const statusCellRaw = (row.cells[13] ?? '').toLowerCase().trim(); // N (пустой заголовок)
+      const location = (row.values['Населённый пункт'] ?? '').trim() || null;
+      const hhVacancyId = pickDigits(row.values['ID HH']);
+      const subdivision = (row.values['Подразделение'] ?? '').trim() || null;
+      const customerName = (row.values['ФИО Заказчика'] ?? '').trim() || null;
+      const positionsCount = pickPositiveInt(row.values['Кол-во']) ?? 1;
+      const openedAt = parseSheetDate(row.values['Дата открытия'] ?? '');
+      const closedDate = parseSheetDate(row.values['Дата закрытия'] ?? '');
+      const statusCellRaw = (row.values['Статус'] ?? '').toLowerCase().trim();
       const isClosed = statusCellRaw === 'закрыта';
       // SPEC §5.3: «стажировка» — промежуточный этап. Вакансия НЕ закрывается.
       const isProbation = statusCellRaw === 'стажировка';
       const status = isClosed ? 'closed' : 'active';
 
-      // O — «Менеджеры»: «Иванов И.И., Петров П.П.» → берём первого.
-      const managersRaw = (row.cells[14] ?? '').trim();
+      // «Менеджеры»: «Иванов И.И., Петров П.П.» → берём первого.
+      const managersRaw = (row.values['Менеджеры'] ?? '').trim();
       const firstManager = managersRaw.split(/[,;]/)[0]?.trim() ?? '';
       const managerId = firstManager
         ? profileByNormName.get(normalizeFullName(firstManager)) ?? null
