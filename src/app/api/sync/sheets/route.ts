@@ -311,7 +311,11 @@ export async function POST() {
         google_sheet_row: row.rowIndex,
       };
 
-      // Upsert по hh_vacancy_id (если есть) — иначе ручной find by (title, manager_id).
+      // Upsert по hh_vacancy_id (если есть) — иначе по (title, manager_id, opened_at).
+      // Три-полевой ключ важен: у одного менеджера может быть несколько вакансий
+      // с одним названием, открытых в разные даты (см. migration
+      // 20260523220000 + partial UNIQUE INDEX). Без opened_at в ключе раньше они
+      // схлопывались в одну запись.
       let vacancyId: string | null = null;
       if (hhVacancyId) {
         const { data: upserted } = await db
@@ -320,12 +324,15 @@ export async function POST() {
           .select('id')
           .single();
         vacancyId = upserted?.id ?? null;
-      } else {
+      } else if (openedAt) {
+        // Полный ключ есть → find by (title, manager_id, opened_at).
         const { data: existing } = await db
           .from('vacancies')
           .select('id')
           .eq('title', title)
           .eq('manager_id', managerId)
+          .eq('opened_at', openedAt)
+          .is('hh_vacancy_id', null)
           .maybeSingle();
         if (existing) {
           await db.from('vacancies').update(payload).eq('id', existing.id);
@@ -333,11 +340,20 @@ export async function POST() {
         } else {
           const { data: inserted } = await db
             .from('vacancies')
-            .insert({ ...payload, opened_at: openedAt ?? new Date().toISOString().slice(0, 10) })
+            .insert({ ...payload, opened_at: openedAt })
             .select('id')
             .single();
           vacancyId = inserted?.id ?? null;
         }
+      } else {
+        // openedAt не пришёл из листа — дедуп невозможен, всегда INSERT.
+        // Сегодня = fallback для NOT NULL opened_at.
+        const { data: inserted } = await db
+          .from('vacancies')
+          .insert({ ...payload, opened_at: new Date().toISOString().slice(0, 10) })
+          .select('id')
+          .single();
+        vacancyId = inserted?.id ?? null;
       }
       vacanciesUpserted += 1;
 
