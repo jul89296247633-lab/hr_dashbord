@@ -5,14 +5,20 @@ import { google } from 'googleapis';
  * Используется только на сервере (sync-роуты, cron). См. SPEC §5.6.
  *
  * Имена вкладок берутся из env:
- *   GOOGLE_SHEETS_VACANCIES_TAB ('Вакансии')
+ *   GOOGLE_SHEETS_VACANCIES_TAB ('Data')
  *   GOOGLE_SHEETS_MANAGERS_TAB  ('HR_менеджеры')
  *   GOOGLE_SHEETS_BONUSES_TAB   ('Бонусы_HR')
  */
 
 export interface SheetRow {
   rowIndex: number; // 1-based номер строки в Sheets (1 — заголовок, данные с 2)
+  /** Доступ по заголовку колонки. Колонки с пустым заголовком сюда не попадают
+   *  (или коллизия по ключу ''). Для них используй `cells[i]` ниже. */
   values: Record<string, string>;
+  /** Сырая строка по индексу колонки (0-based, как в Sheets A=0, B=1, ...).
+   *  Нужно для листов с пустым заголовком (например, в `Data` колонка статуса
+   *  N=13 без заголовка). */
+  cells: string[];
 }
 
 function getSheetsClient() {
@@ -52,11 +58,13 @@ export async function readSheetTab(tabName: string): Promise<SheetRow[]> {
 
   const headers = (rows[0] as string[]).map((h) => String(h).trim());
   return rows.slice(1).map((row, idx) => {
+    const r = row as string[];
+    const cells = headers.map((_, i) => String(r[i] ?? '').trim());
     const values: Record<string, string> = {};
     headers.forEach((h, i) => {
-      values[h] = String((row as string[])[i] ?? '').trim();
+      if (h) values[h] = cells[i];
     });
-    return { rowIndex: idx + 2, values };
+    return { rowIndex: idx + 2, values, cells };
   });
 }
 
@@ -76,7 +84,7 @@ export async function readSheetMeta(
   };
 }
 
-export const VACANCIES_TAB = () => process.env.GOOGLE_SHEETS_VACANCIES_TAB ?? 'Вакансии';
+export const VACANCIES_TAB = () => process.env.GOOGLE_SHEETS_VACANCIES_TAB ?? 'Data';
 export const MANAGERS_TAB = () => process.env.GOOGLE_SHEETS_MANAGERS_TAB ?? 'HR_менеджеры';
 export const BONUSES_TAB = () => process.env.GOOGLE_SHEETS_BONUSES_TAB ?? 'Бонусы_HR';
 

@@ -85,6 +85,9 @@ export type Database = {
           title: string;
           department: string | null;
           subdivision: string | null;
+          location: string | null;
+          customer_name: string | null;
+          positions_count: number | null;
           manager_id: string;
           status: string;
           opened_at: string;
@@ -100,6 +103,9 @@ export type Database = {
           title: string;
           department?: string | null;
           subdivision?: string | null;
+          location?: string | null;
+          customer_name?: string | null;
+          positions_count?: number | null;
           manager_id: string;
           status?: string;
           opened_at?: string;
@@ -114,6 +120,9 @@ export type Database = {
           title?: string;
           department?: string | null;
           subdivision?: string | null;
+          location?: string | null;
+          customer_name?: string | null;
+          positions_count?: number | null;
           manager_id?: string;
           status?: string;
           opened_at?: string;

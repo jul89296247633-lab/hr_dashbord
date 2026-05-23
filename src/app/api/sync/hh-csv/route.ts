@@ -130,10 +130,10 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Идемпотентность: UNIQUE INDEX на (vacancy_id, snapshot_at::date)
-        // защищает от дублей за день. Так как индекс на выражении,
-        // supabase-js .upsert() с onConflict его не использует — делаем
-        // DELETE-за-день + INSERT (повторная загрузка перетирает старое).
+        // Идемпотентность: одна запись snapshot за день на вакансию.
+        // DB-уровневого UNIQUE-индекса нет (см. миграцию 20260523140000_*),
+        // уникальность держим здесь — DELETE-за-день + INSERT
+        // (повторная загрузка CSV за тот же день перетирает старое).
         await db
           .from('vacancy_snapshots')
           .delete()

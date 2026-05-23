@@ -19,12 +19,16 @@ import {
 
 /**
  * POST /api/sync/sheets — ручная синхронизация Google Sheets (head, admin).
- * Три вкладки: «HR менеджеры» → hr_manager_syncs, «Вакансии» (закрытые) →
- * hired_employees, «Бонусы_HR» → hr_bonuses. Запись — service-role (RLS service_write).
  *
+ * Три вкладки:
+ *  - «HR_менеджеры» → hr_manager_syncs
+ *  - «Data» (вакансии) → vacancies (upsert ВСЕ строки) + hired_employees (только закрытые)
+ *  - «Бонусы_HR» → hr_bonuses
+ *
+ * Запись — service-role (RLS service_write).
  * Блокирует параллельный запуск (EC-06): sync_logs running за последние 10 минут → 409.
  *
- * Допущения по заголовкам вкладок (Sheets не типизирован) задокументированы в pick*().
+ * Маппинг колонок листа «Data» — см. блок «── Data → vacancies ──» ниже.
  */
 export async function POST() {
   let user;
@@ -106,51 +110,138 @@ export async function POST() {
       (syncs ?? []).map((s) => [s.sheet_full_name.trim().toLowerCase(), s]),
     );
 
-    // ── Вакансии (закрытые) → hired_employees ────────────────────────────────
+    // ── Data → vacancies (upsert ВСЕ) + hired_employees (только закрытые) ────
+    //
+    // Маппинг колонок листа «Data» (строка 1 — заголовки):
+    //   A  «Название вакансии»          → vacancies.title
+    //   B  «Населённый пункт»           → vacancies.location
+    //   C  «ID HH»                       → vacancies.hh_vacancy_id (опционально)
+    //   D  «Формат поиска ...»          — игнорируем
+    //   E  «Причина появления вакансии» — игнорируем
+    //   F  «Расширенное описание ...»   — игнорируем
+    //   G  «Подразделение»              → vacancies.subdivision
+    //   H  «ФИО Заказчика»              → vacancies.customer_name
+    //   I  «Приоритет»                  — игнорируем
+    //   J  «Кол-во»                      → vacancies.positions_count (default 1)
+    //   K  «Дата открытия»              → vacancies.opened_at
+    //   L  «Месяц закрытия»             — игнорируем
+    //   M  «Дата закрытия»              → vacancies.closed_at (+ hired_employees.hired_date)
+    //   N  (пустой заголовок)            → vacancies.status: 'Закрыта' → 'closed', иначе 'active'
+    //   O  «Менеджеры»                  → vacancies.manager_id (через user_profiles.full_name,
+    //                                     первый из списка если через запятую/точку-с-запятой)
+    //   P  «Кол-во дней в работе»       — игнорируем
+    //   Q  «ФИО кандидата»              — игнорируем
+    //   R  «Комментарий»                — игнорируем
+    //
+    // Upsert vacancies:
+    //   - hh_vacancy_id заполнен → upsert по hh_vacancy_id
+    //   - иначе → find by (title, manager_id) → UPDATE / INSERT
+    //
+    // Для строк со статусом 'Закрыта' дополнительно пишем в hired_employees
+    // (sheet_row_id как ключ — идемпотентно).
+
     const vacancyRows = await readSheetTab(VACANCIES_TAB());
+
+    // Карта активных user_profiles по нормализованному ФИО (для поиска manager_id).
+    const profileByNormName = new Map(
+      (profiles ?? []).map((p) => [normalizeFullName(p.full_name), p.id]),
+    );
+
+    let vacanciesUpserted = 0;
     let closed = 0;
-    let unmatched = 0; // HH ID есть в строке, но вакансия с таким hh_vacancy_id не найдена в БД
-    const skippedNoHhId: number[] = []; // rowIndexes строк с пустым/нечисловым HH ID
+    const skippedManagersInVacancies: { row: number; name: string }[] = [];
+    const skippedNoTitle: number[] = [];
 
     for (const row of vacancyRows) {
-      const status = (row.values['Статус'] ?? '').toLowerCase().trim();
-      const closedDate = parseSheetDate(row.values['Дата закрытия'] ?? '');
-      if (status !== 'закрыта' || !closedDate) continue;
-
-      const positionName = (row.values['Название'] ?? '').trim();
-      if (positionName.length < 2) continue;
-
-      // Новый контракт (2026-05-23): импорт ТРЕБУЕТ непустой числовой "HH ID";
-      // fuzzy-поиск по названию убран. См. миграцию 20260523123000_*.
-      const hhId = pickHhId(row);
-      if (!hhId) {
-        skippedNoHhId.push(row.rowIndex);
+      const title = (row.cells[0] ?? '').trim(); // A
+      if (title.length < 2) {
+        skippedNoTitle.push(row.rowIndex);
         continue;
       }
 
-      // Точный матч по vacancies.hh_vacancy_id.
-      const { data: byHh } = await db
-        .from('vacancies')
-        .select('id')
-        .eq('hh_vacancy_id', hhId)
-        .maybeSingle();
-      const vacancyId: string | null = byHh?.id ?? null;
-      if (!vacancyId) unmatched += 1;
+      const location = (row.cells[1] ?? '').trim() || null; // B
+      const hhVacancyId = pickDigits(row.cells[2]); // C — только цифры или null
+      const subdivision = (row.cells[6] ?? '').trim() || null; // G
+      const customerName = (row.cells[7] ?? '').trim() || null; // H
+      const positionsCount = pickPositiveInt(row.cells[9]) ?? 1; // J
+      const openedAt = parseSheetDate(row.cells[10] ?? ''); // K
+      const closedDate = parseSheetDate(row.cells[12] ?? ''); // M
+      const statusCellRaw = (row.cells[13] ?? '').toLowerCase().trim(); // N (пустой заголовок)
+      const isClosed = statusCellRaw === 'закрыта';
+      const status = isClosed ? 'closed' : 'active';
 
-      const isIntern = (row.values['Тип найма'] ?? '').toLowerCase().includes('стаж');
-      await db.from('hired_employees').upsert(
-        {
-          sheet_row_id: row.rowIndex,
-          vacancy_id: vacancyId,
-          position_name: positionName,
-          hired_date: closedDate,
-          employment_type: isIntern ? 'intern' : 'employee',
-          manager_name_sheet: (row.values['Менеджер'] ?? '').trim() || null,
-          synced_at: new Date().toISOString(),
-        },
-        { onConflict: 'sheet_row_id' },
-      );
-      closed += 1;
+      // O — «Менеджеры»: «Иванов И.И., Петров П.П.» → берём первого.
+      const managersRaw = (row.cells[14] ?? '').trim();
+      const firstManager = managersRaw.split(/[,;]/)[0]?.trim() ?? '';
+      const managerId = firstManager
+        ? profileByNormName.get(normalizeFullName(firstManager)) ?? null
+        : null;
+      if (!managerId) {
+        skippedManagersInVacancies.push({ row: row.rowIndex, name: firstManager || '(пусто)' });
+        continue;
+      }
+
+      // Базовый payload (общий для INSERT и UPDATE).
+      const payload = {
+        hh_vacancy_id: hhVacancyId,
+        title,
+        subdivision,
+        location,
+        customer_name: customerName,
+        positions_count: positionsCount,
+        manager_id: managerId,
+        status,
+        opened_at: openedAt ?? undefined, // не перетираем NOT NULL пустым значением
+        closed_at: closedDate, // nullable — пишем как есть
+        google_sheet_row: row.rowIndex,
+      };
+
+      // Upsert по hh_vacancy_id (если есть) — иначе ручной find by (title, manager_id).
+      let vacancyId: string | null = null;
+      if (hhVacancyId) {
+        const { data: upserted } = await db
+          .from('vacancies')
+          .upsert(payload, { onConflict: 'hh_vacancy_id' })
+          .select('id')
+          .single();
+        vacancyId = upserted?.id ?? null;
+      } else {
+        const { data: existing } = await db
+          .from('vacancies')
+          .select('id')
+          .eq('title', title)
+          .eq('manager_id', managerId)
+          .maybeSingle();
+        if (existing) {
+          await db.from('vacancies').update(payload).eq('id', existing.id);
+          vacancyId = existing.id;
+        } else {
+          const { data: inserted } = await db
+            .from('vacancies')
+            .insert({ ...payload, opened_at: openedAt ?? new Date().toISOString().slice(0, 10) })
+            .select('id')
+            .single();
+          vacancyId = inserted?.id ?? null;
+        }
+      }
+      vacanciesUpserted += 1;
+
+      // Дополнительно: закрытые → hired_employees (для бонусов и истории найма).
+      if (isClosed && closedDate && vacancyId) {
+        await db.from('hired_employees').upsert(
+          {
+            sheet_row_id: row.rowIndex,
+            vacancy_id: vacancyId,
+            position_name: title,
+            hired_date: closedDate,
+            employment_type: 'employee',
+            manager_name_sheet: firstManager || null,
+            synced_at: new Date().toISOString(),
+          },
+          { onConflict: 'sheet_row_id' },
+        );
+        closed += 1;
+      }
     }
 
     // ── Бонусы_HR → hr_bonuses ───────────────────────────────────────────────
@@ -203,12 +294,13 @@ export async function POST() {
       data: {
         sync_log_id: log.id,
         status: 'ok',
+        vacancies_upserted: vacanciesUpserted,
         closed,
-        // unmatched: HH ID был в строке, но вакансия с таким hh_vacancy_id не найдена в БД.
-        unmatched,
-        // skipped_no_hh_id: строки с пустым/нечисловым "HH ID" (новый контракт после 2026-05-23).
-        skipped_no_hh_id: skippedNoHhId.length,
-        skipped_no_hh_id_rows: skippedNoHhId,
+        // skipped_no_title: строки листа без названия (или короче 2 символов).
+        skipped_no_title: skippedNoTitle.length,
+        // skipped_no_manager: ФИО из колонки «Менеджеры» не найдено в user_profiles.
+        skipped_no_manager: skippedManagersInVacancies.length,
+        skipped_no_manager_rows: skippedManagersInVacancies,
         bonuses_upserted: bonusesUpserted,
         skipped_managers: skippedManagers,
         started_at: log.started_at,
@@ -261,11 +353,30 @@ function pickActive(row: SheetRow): boolean {
   return !/неактив|уволен|нет|false|0/.test(raw);
 }
 
-// ── Допущения по заголовкам вкладки «Вакансии» ──────────────────────────────
-// "HH ID" — обязательная числовая колонка для синхронизации (см. миграцию
-// 20260523123000_*). Принимаем "HH ID" или "ID" как фолбэк, только цифры.
-function pickHhId(row: SheetRow): string | null {
-  const raw = (row.values['HH ID'] ?? row.values['ID'] ?? '').trim();
+// ── Хелперы для парсинга колонок листа «Data» ───────────────────────────────
+
+/** Нормализация ФИО для поиска в `user_profiles.full_name`
+ *  (lower, ё→е, схлопывание пробелов). */
+function normalizeFullName(name: string): string {
+  return (name ?? '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Берём только цифры из строки; пусто/нечисловое → null. Используется для
+ *  колонки «ID HH» — HH-идентификаторы всегда числовые. */
+function pickDigits(value: string | undefined): string | null {
+  const raw = (value ?? '').trim();
   if (!raw || !/^\d+$/.test(raw)) return null;
   return raw;
+}
+
+/** Положительное целое из ячейки или null. Для колонки «Кол-во». */
+function pickPositiveInt(value: string | undefined): number | null {
+  const raw = (value ?? '').replace(/\s/g, '').replace(',', '.');
+  if (!raw) return null;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
