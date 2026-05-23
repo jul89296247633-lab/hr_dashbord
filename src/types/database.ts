@@ -403,6 +403,7 @@ export type Database = {
           id: string;
           position_name: string;
           amount_kopecks: number;
+          group_name: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -410,6 +411,7 @@ export type Database = {
           id?: string;
           position_name: string;
           amount_kopecks: number;
+          group_name?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -417,6 +419,7 @@ export type Database = {
           id?: string;
           position_name?: string;
           amount_kopecks?: number;
+          group_name?: string | null;
           created_at?: string;
           updated_at?: string;
         };

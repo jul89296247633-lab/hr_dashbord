@@ -100,9 +100,13 @@ export function BonusesClient({ role }: { role: Role }) {
 
   return (
     <div className="grid gap-5">
-      <h1 className="text-2xl font-semibold">Бонусы</h1>
+      <div>
+        <h1 className="text-2xl font-semibold">Бонусы</h1>
+        <p className="text-muted-foreground mt-0.5 text-sm">{currentMonthHeader()}</p>
+      </div>
 
-      {/* Сводная карточка: сумма начислений за текущий месяц. */}
+      {/* Сводная карточка: сумма начислений за текущий месяц.
+          total_amount_kopecks из API уже исключает строки без тарифа (NULL → 0). */}
       <div className="grid grid-cols-1 sm:max-w-xs">
         <Card>
           <CardContent className="grid gap-1">
@@ -149,7 +153,7 @@ export function BonusesClient({ role }: { role: Role }) {
             <TableRow>
               <TableHead>Менеджер</TableHead>
               <TableHead>Вакансия</TableHead>
-              <TableHead>Должность</TableHead>
+              <TableHead>Тариф</TableHead>
               <TableHead className="text-right">Сумма</TableHead>
             </TableRow>
           </TableHeader>
@@ -160,12 +164,19 @@ export function BonusesClient({ role }: { role: Role }) {
                   <ManagerName name={b.manager?.full_name} isActive={b.manager?.is_active} />
                 </TableCell>
                 <TableCell>{b.vacancy?.title ?? '—'}</TableCell>
-                <TableCell>{b.position_name}</TableCell>
+                <TableCell>
+                  {b.rate_position_name ?? (
+                    <span
+                      className="text-muted-foreground italic"
+                      title="Не нашли соответствующий тариф в bonus_rates (fuzzy < 0.6)"
+                    >
+                      Тариф не задан
+                    </span>
+                  )}
+                </TableCell>
                 <TableCell className="text-right">
                   {b.amount_display ?? (
-                    <span className="text-muted-foreground" title="Тариф не найден в bonus_rates">
-                      —
-                    </span>
+                    <span className="text-muted-foreground">—</span>
                   )}
                 </TableCell>
               </TableRow>
@@ -175,4 +186,11 @@ export function BonusesClient({ role }: { role: Role }) {
       )}
     </div>
   );
+}
+
+/** «Май 2026» — первая буква заглавная, без «г.». */
+function currentMonthHeader(): string {
+  const d = new Date();
+  const month = d.toLocaleDateString('ru-RU', { month: 'long' });
+  return `${month.charAt(0).toUpperCase()}${month.slice(1)} ${d.getFullYear()}`;
 }
