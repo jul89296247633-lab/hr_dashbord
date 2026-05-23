@@ -16,11 +16,18 @@ export interface SheetRow {
 }
 
 function getSheetsClient() {
+  // Явная сборка credentials объекта для google.auth.GoogleAuth.
+  // - `type: 'service_account'` нужен googleapis для выбора JWT-flow
+  //   (без него библиотека может попытаться authorized-user flow).
+  // - `private_key` приходит из env как одна строка с литералами `\n` —
+  //   googleapis ожидает реальные переносы строк в PEM, поэтому делаем replace.
+  const credentials = {
+    type: 'service_account',
+    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    private_key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+  };
   const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: process.env.GOOGLE_SERVICE_ACCOUNT_KEY?.replace(/\\n/g, '\n'),
-    },
+    credentials,
     scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
   });
   return google.sheets({ version: 'v4', auth });
