@@ -72,7 +72,7 @@ export function StaffingCard({
     <Card>
       <CardContent className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-muted-foreground text-sm font-medium">Укомплектованность отдела</div>
+          <div className="text-muted-foreground text-sm font-medium">Укомплектованность компании</div>
           {current ? (
             <>
               <div className={cn('text-6xl font-bold', pctColor(current.staffing_pct))}>

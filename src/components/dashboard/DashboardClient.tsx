@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StaffingCard } from '@/components/dashboard/StaffingCard';
+import { PolitenessCompanyCard } from '@/components/dashboard/PolitenessCompanyCard';
 import { KpiCards } from '@/components/dashboard/KpiCards';
 import { TeamFunnel } from '@/components/dashboard/TeamFunnel';
 import { DivisionCards } from '@/components/dashboard/DivisionCards';
@@ -45,21 +46,15 @@ export function DashboardClient({ role }: { role: Role }) {
     setError(null);
     try {
       const divisionsPeriod = period === 'today' ? 'week' : period;
-      const requests: [
-        Promise<TeamResponse>,
-        Promise<DivisionsResponse>,
-        Promise<StaffingResponse>,
-        Promise<PolitenessResponse | null>,
-      ] = [
+      // politeness грузим для всех ролей — компанийный индекс отображается
+      // в карточке /dashboard. API /api/stats/politeness не требует head/admin.
+      const [t, d, s, p] = await Promise.all([
         fetchData<TeamResponse>(`/api/dashboard/team?period=${period}`),
         fetchData<DivisionsResponse>(`/api/dashboard/divisions?period=${divisionsPeriod}`),
         fetchData<StaffingResponse>('/api/staffing'),
         // politeness не принимает 'today' — маппим в 'week' (review 4.5 #4).
-        canSeeTeam
-          ? fetchData<PolitenessResponse>(`/api/stats/politeness?period=${divisionsPeriod}`)
-          : Promise.resolve(null),
-      ];
-      const [t, d, s, p] = await Promise.all(requests);
+        fetchData<PolitenessResponse>(`/api/stats/politeness?period=${divisionsPeriod}`),
+      ]);
       setTeam(t);
       setDivisions(d);
       setStaffing(s);
@@ -69,7 +64,7 @@ export function DashboardClient({ role }: { role: Role }) {
     } finally {
       setLoading(false);
     }
-  }, [period, canSeeTeam]);
+  }, [period]);
 
   useEffect(() => {
     void load();
@@ -107,7 +102,10 @@ export function DashboardClient({ role }: { role: Role }) {
         <DashboardSkeleton />
       ) : (
         <>
-          <StaffingCard current={staffing?.current ?? null} canEdit={canEditStaffing} onUpdated={load} />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <StaffingCard current={staffing?.current ?? null} canEdit={canEditStaffing} onUpdated={load} />
+            <PolitenessCompanyCard value={politeness?.company?.politeness_index ?? null} />
+          </div>
 
           {team && (
             <KpiCards
