@@ -6,7 +6,7 @@ import { google } from 'googleapis';
  *
  * Имена вкладок берутся из env:
  *   GOOGLE_SHEETS_VACANCIES_TAB ('Вакансии')
- *   GOOGLE_SHEETS_MANAGERS_TAB  ('HR менеджеры')
+ *   GOOGLE_SHEETS_MANAGERS_TAB  ('HR_менеджеры')
  *   GOOGLE_SHEETS_BONUSES_TAB   ('Бонусы_HR')
  */
 
@@ -77,7 +77,7 @@ export async function readSheetMeta(
 }
 
 export const VACANCIES_TAB = () => process.env.GOOGLE_SHEETS_VACANCIES_TAB ?? 'Вакансии';
-export const MANAGERS_TAB = () => process.env.GOOGLE_SHEETS_MANAGERS_TAB ?? 'HR менеджеры';
+export const MANAGERS_TAB = () => process.env.GOOGLE_SHEETS_MANAGERS_TAB ?? 'HR_менеджеры';
 export const BONUSES_TAB = () => process.env.GOOGLE_SHEETS_BONUSES_TAB ?? 'Бонусы_HR';
 
 /** 'DD.MM.YYYY' → 'YYYY-MM-DD'. Пустая/неполная строка → null. */
