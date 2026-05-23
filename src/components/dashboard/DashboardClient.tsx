@@ -109,6 +109,7 @@ export function DashboardClient({ role }: { role: Role }) {
 
           {team && (
             <KpiCards
+              activeVacancies={team.summary.active_vacancies}
               calls={team.summary.calls}
               interviews={team.summary.interviews}
               hired={team.summary.hired}

@@ -1,6 +1,13 @@
 'use client';
 
-import { Phone, Users, UserCheck, GraduationCap, type LucideIcon } from 'lucide-react';
+import {
+  Briefcase,
+  Phone,
+  Users,
+  UserCheck,
+  GraduationCap,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
@@ -46,18 +53,21 @@ function KpiCard({
 }
 
 export function KpiCards({
+  activeVacancies,
   calls,
   interviews,
   hired,
   interns,
 }: {
+  activeVacancies: number;
   calls: KpiMetric;
   interviews: KpiMetric;
   hired: KpiMetric;
   interns: number;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <KpiCard icon={Briefcase} label="Активных вакансий" metric={{ fact: activeVacancies }} />
       <KpiCard icon={Phone} label="Звонки" metric={calls} />
       <KpiCard icon={Users} label="Собеседования" metric={interviews} />
       <KpiCard icon={UserCheck} label="Выведено" metric={hired} />
