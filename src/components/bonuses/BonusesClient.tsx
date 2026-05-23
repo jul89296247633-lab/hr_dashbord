@@ -54,7 +54,6 @@ function formatKopecks(k: number): string {
 export function BonusesClient({ role }: { role: Role }) {
   const canManage = role === 'head' || role === 'admin';
 
-  const [status, setStatus] = useState('all');
   const [managerFilter, setManagerFilter] = useState('all');
   const [page, setPage] = useState(1);
 
@@ -85,7 +84,8 @@ export function BonusesClient({ role }: { role: Role }) {
     setLoading(true);
     setError(null);
     try {
-      const qs = new URLSearchParams({ status, page: String(page), per_page: String(PER_PAGE) });
+      // status фиксирован 'all' — показываем все начисленные бонусы без фильтра.
+      const qs = new URLSearchParams({ status: 'all', page: String(page), per_page: String(PER_PAGE) });
       if (managerFilter !== 'all') qs.set('manager_id', managerFilter);
 
       const [listRes, sumRes] = await Promise.all([
@@ -107,7 +107,7 @@ export function BonusesClient({ role }: { role: Role }) {
     } finally {
       setLoading(false);
     }
-  }, [status, managerFilter, page]);
+  }, [managerFilter, page]);
 
   useEffect(() => {
     void load();
@@ -120,32 +120,14 @@ export function BonusesClient({ role }: { role: Role }) {
     <div className="grid gap-5">
       <h1 className="text-2xl font-semibold">Бонусы</h1>
 
-      {/* Сводные карточки */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      {/* Сводная карточка: суммарно начислено за месяц (pending + paid). */}
+      <div className="grid grid-cols-1 sm:max-w-xs">
         <SummaryCard label="Начислено за месяц" value={formatKopecks(summary.pending + summary.paid)} />
-        <SummaryCard label="Выплачено" value={formatKopecks(summary.paid)} />
-        <SummaryCard label="Ожидают выплаты" value={formatKopecks(summary.pending)} />
       </div>
 
-      {/* Фильтры */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={status}
-          onValueChange={(v) => {
-            setPage(1);
-            setStatus(v);
-          }}
-        >
-          <SelectTrigger className="w-[160px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Все статусы</SelectItem>
-            <SelectItem value="pending">Начислены</SelectItem>
-            <SelectItem value="paid">Выплачены</SelectItem>
-          </SelectContent>
-        </Select>
-        {canManage && managers.length > 0 && (
+      {/* Фильтр: только менеджеры (для head/admin). */}
+      {canManage && managers.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
           <Select
             value={managerFilter}
             onValueChange={(v) => {
@@ -165,8 +147,8 @@ export function BonusesClient({ role }: { role: Role }) {
               ))}
             </SelectContent>
           </Select>
-        )}
-      </div>
+        </div>
+      )}
 
       {error && (
         <Alert variant="destructive">
