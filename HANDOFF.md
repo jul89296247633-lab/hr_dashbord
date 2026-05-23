@@ -2,7 +2,7 @@
 
 > Сводка состояния проекта для передачи сессии. Дата: 2026-05-23.
 > Источник истины по требованиям — `SPEC.md`. Правила — `CLAUDE.md`.
-> Стек: Next.js 15 (App Router, `src/`), TypeScript, Tailwind v4, shadcn/ui (вручную), Supabase, Zod.
+> Стек: Next.js 15 (App Router, `src/`), TypeScript, Tailwind v4, shadcn/ui (вручную), Supabase (PG17), Zod.
 
 Проверка после изменений: `npx tsc --noEmit`, `npx next lint`, `next build` — **все три зелёные**.
 (Сборка прогоняется с фиктивными env: `NEXT_PUBLIC_SUPABASE_URL/ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.)
@@ -11,140 +11,214 @@
 
 ## ✅ Что сделано
 
-### Data Model (готово)
-- `supabase/migrations/20260522120000_initial_schema.sql` — 14 таблиц, RLS на всех, audit-триггеры, RPC `fuzzy_match_vacancy` / `find_vacancy_by_title`.
-- `supabase/config.toml`, `supabase/README.md`.
-- ⚠️ Миграция к живой БД **не применялась** (в окружении нет Supabase CLI/Docker). Типы `src/types/database.ts` написаны **вручную** по миграции (совместимы с `supabase gen types`).
+### Data Model + миграции
+Прод применены / готовы к применению (`supabase db push`):
 
-### API-слой (готово — 36 route-файлов в `src/app/api/`)
-- **activities**: `GET /[date]`, `POST`
-- **vacancies**: `GET`, `POST`, `GET /[id]`, `PATCH /[id]`, `GET /[id]/funnel`
-- **dashboard**: `GET /team`, `/manager`, `/me`, `/divisions`
-- **plans**: `GET`, `POST`, `GET /[manager_id]`
-- **staffing**: `GET`, `POST`
-- **sync**: `POST /sheets`, `POST /hh` (+`GET` статус), `POST /mango`, `POST /hh-csv`, `GET /logs`
-- **stats**: `GET /politeness`
-- **bonuses**: `GET`, `GET /summary`, `PATCH /[id]/match`
-- **ai**: `GET /insights`, `POST /insights/generate`, `PATCH /insights/[id]/read`, `GET /report/[week]`
-- **admin**: `GET/POST/PATCH users` (+`/invite`, `/[id]`), `GET audit-logs` (+`/[id]`), `GET error-logs` (+`/[id]/resolve`), `POST integrations/sheets/test`, `GET integrations/hh` (+`/[manager_id]/connect`, `DELETE /[manager_id]`)
-- Хелперы: `lib/api-helpers.ts` (getAuthUser, requireRole, apiError/apiSuccess, handleApiError, getPeriodRange, workdaysBetween, kpiPct, calcManagerStatus), `lib/supabase/{server,client,middleware,admin}.ts`, `lib/validations.ts`, `lib/google-sheets.ts`, `lib/hh-csv-parser.ts`, `lib/hh-api.ts`, `lib/mango.ts`, `lib/ai/*`.
-- ⚠️ Внешние интеграции (HH API, Манго, Google Sheets, Anthropic) проверены **только компиляцией** — без реальных кредов не верифицированы.
+| # | Файл | Назначение |
+|---|---|---|
+| 1 | `20260522120000_initial_schema.sql` | 14 таблиц, RLS на всех, audit-триггеры, RPC `fuzzy_match_vacancy`. |
+| 2 | `20260523120000_fix_rls_write_policies.sql` | Дроп широких `FOR ALL WITH CHECK(TRUE)`, узкие head/admin write-политики; whitelist роли в `handle_new_user`. |
+| 3 | `20260523123000_hh_vacancy_id_required_for_sheets.sql` | Контракт: `hh_vacancy_id` для sheets-sync (старая логика, до перехода на лист «Data»). |
+| 4 | `20260523130000_audit_mask_hh_tokens.sql` | Маскировка `hh_access_token`/`hh_refresh_token` в `audit_logs` + чистка существующих записей. |
+| 5 | `20260523140000_vacancy_snapshots_unique_per_day.sql` | Разовая дедупликация `vacancy_snapshots` по `(vacancy_id, DATE(snapshot_at))`. UNIQUE INDEX **не** создаётся — идемпотентность держит роут `/api/sync/hh-csv` через DELETE+INSERT. |
+| 6 | `20260523141000_hr_manager_syncs_hh_manager_id.sql` | `+hh_manager_id TEXT` (nullable) + partial UNIQUE. Стабильный матч менеджеров HH↔БД. |
+| 7 | `20260523150000_vacancies_sheets_fields.sql` | `+location/customer_name/positions_count` в `vacancies` под новую схему листа «Data». |
 
-### UI (Блок 4) — ГОТОВО (все экраны SPEC Блок 0 имеют фронтенд)
-- **Фаза 1 (фундамент, готово):** Tailwind v4 + тема (`globals.css`), shadcn/ui компоненты вручную (`components/ui/*`), `Toaster` (sonner), `/login` (`(auth)/login`), `(app)/layout.tsx` (sidebar по роли + Header + mobile drawer), `middleware` (redirect по роли).
-- **Фаза 2a (готово):** `/cabinet` + `/cabinet/[date]` (US-001) — CabinetView/Client, ActivityForm (RHF+Zod, AbortController 10с, localStorage-черновик), KpiBar, DatePicker (react-day-picker), Alert.
-- **Фаза 2b (готово):** `/dashboard` (сводный, head/admin/executive) — StaffingCard(+Dialog), KpiCards, TeamFunnel, DivisionCards, TeamTable, табы периода. Клиентский, тянет `/api/dashboard/team` + `/divisions` + `/staffing` + `/stats/politeness`.
-- **Фаза 2c (готово):** `/dashboard/manager` (личный) — KPI+статус, by_day таблица, табы периода, Select менеджера для head/admin (`ui/select.tsx`). executive → редирект на `/dashboard`.
-- **Фаза 2d (готово):** `/dashboard/efficiency` (head/admin) — ИВ компании, полная таблица (звонки/собеседования/выведено/ИВ+Tooltip/бонусы/статус), фильтр периода+менеджера, аккордеон бонусов (`ui/collapsible.tsx`). Тянет team + stats/politeness + bonuses/summary. ⚠️ Sheet-детализация менеджера и экспорт CSV не сделаны (кнопка disabled).
-- **Фаза 2e (готово):** `/dashboard/divisions` (head/admin/executive) — Select подразделения + табы week/month/quarter, список подразделений (Collapsible), раскрытие → таблица вакансий с мини-воронкой и AlertTriangle при days_open>45. Фильтр подразделений на клиенте.
-- **Фаза 2f (готово):** вакансии — `/vacancies` (список: фильтр статуса, пагинация, «Создать» для head/admin), `/vacancies/[id]` (воронка 6 этапов + конверсии, период-табы, sync HH, breadcrumb, 404-карточка), `/vacancies/new` + `/vacancies/[id]/edit` (VacancyForm, RHF+Zod, Select менеджера/статуса, 409 toast). ⚠️ Тренд-график (recharts) и мини-воронка в списке не делались — нет данных в API.
-- **Фаза 2g (готово):** `/bonuses` — сводные карточки (начислено/выплачено/ожидают из bonuses/summary), таблица с фильтрами (статус + менеджер для head/admin) и пагинацией, подсветка несопоставленных + Alert, ручная привязка через MatchDialog (PATCH /api/bonuses/[id]/match). ⚠️ DateRange-фильтр и экспорт CSV не делались.
-- **Фаза 2h (готово):** `/plan` (head/admin) — таблица планов по менеджерам (без плана → дефолты 15/5/15/5 серым), изменение через PlanDialog (RHF+Zod, POST /api/plans, effective_from опц.). ⚠️ Sheet истории планов не делал — нет эндпоинта полной истории (только активный план).
-- **Фаза 2i (готово):** `/staffing` — крупный % (цвет ≥80/60–79/<60), история 20 записей (дата/%/комментарий/кто), Dialog обновления для head/admin (POST /api/staffing). Read-only для остальных ролей.
-- **Фаза 2j (готово):** `/sync` (карточки запуска Sheets/HH/Манго + статус HH; загрузка CSV 3 типов через FormData на /api/sync/hh-csv) + `/sync/logs` (журнал, фильтры источник/статус, пагинация). head/admin.
-- **Фаза 2k (готово):** `/ai` (секции аномалии/прогнозы/рекомендации/отчёты, бейдж непрочитанных, фильтр, mark-read, Markdown через `ui/markdown.tsx`+react-markdown, GenerateDialog по типу→менеджер/вакансия, 429 toast) + `/ai/report/[week]` (Markdown + мета-панель + print, 404-карточка). head/admin. ⚠️ «Скачать PDF» (puppeteer) не делал.
-- **Фаза 2l (готово):** админка — `/admin/users` (таблица + invite/edit Dialog + toggle active), `/admin/integrations` (HH-токены: статусы/connect/revoke + тест Google Sheets), `/admin/logs` (Tabs Ошибки[+resolve, Sheet деталей]/Аудит[diff-сводка]). Только admin. ⚠️ DateRange/экспорт CSV не делал.
+Типы `src/types/database.ts` синхронизированы со всеми миграциями.
 
----
+### API (`src/app/api/`) — 36 route-файлов
+- `activities/` (GET/POST за 30 дней), `vacancies/` (CRUD + funnel), `dashboard/` (team/manager/me/divisions),
+  `plans/`, `staffing/`, `bonuses/`, `stats/politeness/`, `ai/`, `admin/` (users/audit/error-logs/integrations).
+- Хелперы: `lib/api-helpers.ts` (getAuthUser/requireRole/handleApiError/scaledHiresPlan), `lib/supabase/*`,
+  `lib/validations.ts`, `lib/google-sheets.ts`, `lib/hh-csv-parser.ts`, `lib/hh-api.ts`, `lib/mango.ts`, `lib/ai/*`.
 
-## 🔄 Что в процессе прямо сейчас
-- **Весь Блок UI завершён.** Пройден шаг 4.5 (кросс-модельное ревью на Sonnet).
-- **✅ Все 4 🔴-блокера ревью закрыты** (см. секцию ниже). Активной задачи нет.
-- Дальше: (1) cron-скрипты (Промпт B в HANDOFF), (2) деплой; по желанию — добрать 🟠.
+### Sync-стек (полностью обновлён под CSV-выгрузки HH 2026-05)
+- **`/api/sync/sheets`** — переписан под лист **«Data»** (бывший «Вакансии»):
+  - Колонки A..R листа (см. шапку route) → `vacancies` (upsert ВСЕ строки).
+  - Закрытые (колонка N = `Закрыта`) → дополнительно в `hired_employees`.
+  - Upsert ключ: `hh_vacancy_id` если заполнен, иначе `(title, manager_id)`.
+  - Несколько менеджеров через `,;` → берём первого.
+  - `manager_id` не найден в `user_profiles.full_name` → пропуск + `skipped_no_manager_rows` в ответе.
+- **`/api/sync/hh-csv`** — два типа CSV вместо трёх:
+  - `politeness_managers` → `recruitment_analytics_managers_statistics_*.csv` → `hh_manager_stats`.
+  - `vacancies` → `recruitment_analytics_vacancies_*.csv` → `vacancy_snapshots` + EC-03 (`Архивная=Да` → `vacancies.status='closed'`).
+  - Матчер менеджеров: (1) `hh_manager_id` точный, (2) ФИО exact, (3) fuzzy по фамилии. При первом матче по ФИО — обогащение `hr_manager_syncs.hh_manager_id`.
+  - Кодировка: UTF-8 BOM с fallback на windows-1251 (`decodeCsv`).
+- `lib/google-sheets.ts`: явная сборка credentials с `type:'service_account'`,
+  переменная `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` (бывшая `_KEY`). `SheetRow.cells: string[]`
+  для листов с пустым заголовком колонки.
+- `politeness_company` больше не CSV — считается **weighted average по менеджерам** (вес = `responses_received`) в `/api/stats/politeness`.
 
----
+### UI (Блок 4) — все экраны SPEC Блок 0 готовы
+`/cabinet`, `/dashboard` + `/efficiency` + `/divisions` + `/manager`, `/vacancies` (+`/[id]`, `/new`, `/[id]/edit`),
+`/bonuses`, `/plan`, `/staffing`, `/sync` + `/sync/logs`, `/ai` + `/ai/report/[week]`, `/admin/{users,integrations,logs}`.
 
-## ⬜ Что осталось
+Свежие правки:
+- **`/reset-password`** создана (PKCE `?code=` + implicit hash, redirect по роли).
+- **`/sync` (`SyncClient.tsx`)** — две карточки: «Аналитика вакансий» / «Статистика менеджеров» (зон `calls` и `company_politeness` больше нет).
+- **«Уволен» бейдж** в 4 списках (`/dashboard/efficiency` Select+таблица, `/dashboard/manager` Select, `/bonuses`, `/vacancies`) — `ManagerName`.
+- **EfficiencyClient**: убрано поле `avg_response_hours` (в новом отчёте HH этой колонки нет).
 
-### Cron-скрипты (Beget VPS, `scripts/`) — НЕ начато. **Следующий шаг.**
-- `sync-hh.ts` (воронка HH, 8–22 пн-пт), `sync-mango.ts` (звонки, 20:00), `refresh-hh-tokens.ts` (7:00), `generate-weekly-report.ts` (пт 20:30, AI weekly_report).
-- Логика частично переиспользуема из `lib/hh-api.ts` / `lib/mango.ts`. Нужен `tsconfig.scripts.json` + pm2-конфиг.
+### Закрытые блокеры / должно-фиксы
 
-### Деплой / инфраструктура — НЕ начато
-- Применить миграцию (`supabase db push`), `supabase gen types` → перезаписать `database.ts`.
-- Создать первого admin-пользователя (Supabase Auth + профиль).
-- Vercel (фронт) env, Beget VPS (cron) env — заполнить по `.env.example`.
-- Реальные креды интеграций; прогнать sync-эндпоинты на живых данных.
-- pg_cron очистка `error_logs` (>90 дней).
+**🔴 Cross-model review 4.5 (все закрыты):**
+- RLS-дыры `FOR ALL WITH CHECK(TRUE)`, `handle_new_user` whitelist, hires KPI scaling, politeness `today→week` mapping.
 
----
+**🟠 5 should-fix перед prod (закрыты, см. соответствующие коммиты до сессии):**
+1. CSV size limit 10 MiB → 413 FILE_TOO_LARGE
+2. Admin self-deactivate / last active admin guard
+3. Audit-триггер маскирует `hh_access_token`/`hh_refresh_token`
+4. `ai/client.ts` `JSON.parse` → `AI_PARSE_ERROR` (502)
+5. AI rate-limit — per-company (не per-user)
 
-## 🔬 Шаг 4.5 — кросс-модельное ревью (код писал Opus → ревью на Sonnet)
+**EC-фиксы:**
+- **EC-03** auto-close (HH 404 / `Архивная=Да`) — теперь приходит из CSV `vacancies`, не зависит от OAuth.
+- **EC-08** skip inactive manager (раньше в OAuth-кроне).
 
-Проведено перед деплоем двумя read-only Sonnet-агентами (безопасность + корректность).
-**Все 🔴-блокеры закрыты в коде/миграциях (2026-05-23).** Полные находки — ниже, приоритизировано.
-Перед prod-деплоем: применить новую миграцию `20260523120000_fix_rls_write_policies.sql`
-к живой БД (`supabase db push`) и при возможности добрать 🟠.
+**Прод-500 на `/dashboard` пофикшен (`d1c3946`):** safe-destructuring `getUser()`, `.maybeSingle()`, `signOut` обёрнут в try/catch, `redirect()` пропускается через `isRedirectError`.
 
-### 🔴 Блокеры — ✅ ЗАКРЫТЫ 2026-05-23
-1. **RLS-дыра `FOR ALL WITH CHECK (TRUE)`** — ✅ `supabase/migrations/20260523120000_fix_rls_write_policies.sql`. Дропнуты 7 широких политик (cron всё равно ходит под service_role и обходит RLS). Для `daily_activities` и `ai_insights` добавлены узкие head/admin INSERT+UPDATE (там есть API-пути под RLS-клиентом). На живой БД — применить миграцию (`supabase db push`) и убедиться, что менеджер через PostgREST не может DELETE чужие строки.
-2. **`handle_new_user` whitelist роли** — ✅ та же миграция: `CREATE OR REPLACE FUNCTION` с проверкой `IN ('manager','head','executive','admin')`, иначе fallback `'manager'`. Дополнительно `supabase/config.toml` уже `enable_signup = false`; для prod проверить ту же настройку в Supabase Dashboard.
-3. **`hires` KPI масштабирование** — ✅ `src/lib/api-helpers.ts::scaledHiresPlan(monthly, from, to)` (план × workdays_period / workdays_in_month_of_to). Применён в `/api/dashboard/{team,manager,me}`.
-4. **`/api/stats/politeness?period=today` маппинг** — ✅ в `EfficiencyClient` и `DashboardClient` `today→week` перед запросом politeness (и bonuses/summary в Efficiency).
-
-Бонусом закрыто 🟠: `ai_insights` SELECT-политика — убран leak `weekly_report` (manager_id IS NULL) для менеджеров через прямой PostgREST.
-
-### 🟠 Major (до prod, не блокируют функционал)
-- Middleware не делает ролевых редиректов — защита только в page-guard'ах (хрупко при добавлении новых страниц).
-- RLS `ai_insights`/`hh_manager_stats`: `manager_id IS NULL` виден любому авторизованному (weekly_report/ИВ компании) — при прямом доступе к БД менеджер увидит. API закрыт `requireRole`.
-- `PATCH /api/admin/users/[id]`: admin может разжаловать/деактивировать сам себя или последнего admin — нет защиты.
-- CSV-загрузка `/api/sync/hh-csv` без лимита размера файла (DoS).
-- `politeness_company` пишется через DELETE+INSERT (неатомарно) — заменить на upsert.
-- `lib/ai/client.ts`: `JSON.parse` ответа модели без try/catch → 500 без диагностики.
-- AI rate-limit по `triggered_by=user.id`, а CLAUDE.md §9 требует «на компанию».
-- Audit-триггер пишет `hh_access_token`/`hh_refresh_token` в `audit_logs.new_values` — маскировать.
-- executive в `/api/dashboard/team` получает массив обезличенных менеджеров; SPEC US-007 показывает `managers: null`.
-
-### 🟡 Minor
-- Таймзоны: `forecast.ts`/`isoWeekRange` на UTC, `workdaysBetween`/`getPeriodRange` на localtime — унифицировать.
-- `kpiPct` (0.1%) vs `KpiBar` (1%) — разная точность.
-- `isoWeekSchema` допускает `W00`/`W99`.
-- divisions/funnel: загрузка всех snapshot без `limit` на вакансию (перф при росте данных).
-- `employment_type` intern из Sheets определяется по колонке «Тип найма», которой может не быть (SPEC говорит про «Статус»).
-- voronka вакансии: первые 3 этапа — накопительно за всё время, остальные — за период (смешанные данные; в SPEC был `note`).
-
-**Вердикт ревью:** архитектура и авторизация в целом крепкие (getUser не getSession; service_role не утекает в клиент; HH-токены не отдаются; Zod до БД; UUID-валидация). Перед prod закрыть 4 🔴 + желательно 🟠.
+**RSC-граница на layout пофикшена (`36d6858`):** `NavItem.icon` (LucideIcon = function) больше не пересекает Server→Client; `SidebarNav` принимает `role`, считает `items` сам.
 
 ---
 
-## ⚠️ Ключевые решения, отклоняющиеся от SPEC
-1. **Окно редактирования активностей — 30 дней** (а не 7 из SPEC §5.2/US-001). Зафиксировано в `POST /api/activities` (`DATE_TOO_OLD`) и в кабинете (граница readonly). Сохранено в memory проекта. **Не откатывать к 7.**
-2. **Статус KPI: `'lagging'`** (а не SPEC `'behind'`) для 70–89% — по явному указанию пользователя. Метки UI: «В плане»/«Отставание»/«Критично».
-3. **service-role в `/api/dashboard/team` и `/divisions`** — RLS не пускает `executive` к `daily_activities`/`user_profiles`; читаем через `lib/supabase/admin.ts` после `requireRole`, executive отдаём без имён (EC-09).
-4. **Имена под реальную схему БД:** тело `POST /api/plans` использует `hires_per_month` / `vacancies_limit` (в ТЗ были `hired_per_month`/`vacancy_limit`); таблица укомплектованности — `staffing_records` (в ТЗ упоминалась `staffing_snapshots`); politeness пишется в `hh_manager_stats` (отдельной `hh_politeness_stats` нет).
-5. **HH CSV type-маппинг:** `calls`→`calls`, `politeness`→`politeness_managers`, `company_politeness`→`politeness_company`. Авто-источник HH-звонков в кабинете — `hh_csv` (а не `hh_api`).
-6. **`subdivision` исключён** из admin invite/update — такой колонки в `user_profiles` нет (она в `vacancies`).
-7. **`/dashboard/divisions`: `plan_completion_pct = null`** — плана на уровне подразделения в схеме нет; воронка агрегируется по данным вакансии (snapshots+найм), звонки/собеседования (по менеджеру) в неё не входят.
-8. **AI generate** упрощён до одного инсайта по `{type, manager_id?/vacancy_id?}`; промпты унифицированы под JSON `{title, body_md, severity}`.
-9. **Fuzzy-сопоставление менеджеров в `hh-csv`** упрощено (exact-normalize + фолбэк по фамилии); выделенной RPC по именам нет (`fuzzy_match_vacancy` — только для названий вакансий).
-10. **Тех-зависимости:** `@supabase/ssr` поднят до 0.10.3 (старый 0.5.2 ломал типизацию в `never`); shadcn-компоненты написаны **вручную** (CLI интерактивен); DatePicker на `react-day-picker` v10 со штатными стилями.
+## 🔄 Текущий статус
+
+### Деплой
+- **Vercel** — фронт задеплоен; на main каждый коммит → продакшн.
+- **Supabase (PG17)** — `config.toml` указывает `major_version=17`. Миграции **частично** применены — точный список применённых нужно сверить через Supabase Dashboard → SQL → `supabase_migrations.schema_migrations`. Безопасно повторно `supabase db push` — все миграции идемпотентны (`IF NOT EXISTS` / `CREATE OR REPLACE` / partial `DROP`).
+
+### Sync Google Sheets — ⚠️ работает, но возвращает **0 записей**
+**Симптом:** `POST /api/sync/sheets` отвечает 200, `vacancies_upserted: 0`, `closed: 0`, в БД ничего не появляется.
+
+**Что точно работает:** аутентификация Google API (иначе вернулось бы 502 `SHEETS_AUTH_ERROR` — обработка есть в [route.ts:233](src/app/api/sync/sheets/route.ts#L233)).
+
+**Подозреваемые причины (по убыванию вероятности):**
+1. **Имя листа.** Дефолт сменён на `Data`, но env `GOOGLE_SHEETS_VACANCIES_TAB` на Vercel может ещё указывать на старое имя или быть пустым; либо лист в самой Google-таблице называется иначе (например, кириллица «Data» vs латиница).
+2. **Все строки пропущены `skipped_no_manager`** — нормализованное ФИО из колонки O не совпадает ни с одним `user_profiles.full_name`. Проверить через ответ API: смотреть `skipped_no_manager_rows` (массив `{ row, name }`).
+3. **Все строки пропущены `skipped_no_title`** — колонка A пуста или короче 2 симв.
+4. **Заголовки сместились** — например, колонка статуса теперь не N (index 13); тогда статус читается как пусто, ВСЕ становятся `'active'`, но всё равно должны upsert-иться. Маловероятно как причина именно «0 записей».
+
+**Где смотреть:** `/sync/logs` (UI) → последний запуск `source='sheets'`. `error_message` / `records_total` / `records_updated`. Если `records_total=0` — `readSheetTab` ничего не вернул (имя листа / доступ). Если `records_total>0` а `records_updated=0` — данные читаются, но всё попадает в skipped (см. п.2/3).
+
+**План диагностики — это следующий шаг (см. ниже).**
+
+### Env vars в Vercel — что должно быть установлено
+
+Из [.env.example](.env.example) (актуальный набор после переименований):
+
+| Группа | Переменная | Назначение |
+|---|---|---|
+| Supabase | `NEXT_PUBLIC_SUPABASE_URL` | ✓ задаёт URL проекта |
+| Supabase | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✓ публичный ключ для браузера |
+| Supabase | `SUPABASE_SERVICE_ROLE_KEY` | ⚠️ только сервер, минует RLS |
+| Google Sheets | `GOOGLE_SHEETS_SPREADSHEET_ID` | ID таблицы (из URL Sheets) |
+| Google Sheets | `GOOGLE_SHEETS_VACANCIES_TAB` | **должно быть `Data`** |
+| Google Sheets | `GOOGLE_SHEETS_MANAGERS_TAB` | **должно быть `HR_менеджеры`** |
+| Google Sheets | `GOOGLE_SHEETS_BONUSES_TAB` | `Бонусы_HR` |
+| Google Sheets | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | service-account email |
+| Google Sheets | `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | **переименовано** из `_KEY` (см. `def46d5`). Литералы `\n` в PEM. |
+| AI | `ANTHROPIC_API_KEY` | для `/api/ai/*` |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ADMIN_CHAT_ID` | алерты (опционально) |
+
+Удалена `HH_CSV_ENCODING` — кодировка теперь автодетект (`decodeCsv`).
+
+⚠️ **Проверить на Vercel:** значение `GOOGLE_SHEETS_VACANCIES_TAB` и наличие `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` (если ещё `_KEY` — sync даст `SHEETS_AUTH_ERROR`).
 
 ---
 
-## ▶️ Следующий шаг — готовый промпт
+## ⬜ Ожидающие задачи
 
-> 🔴-блокеры закрыты. Дальше: cron-скрипты. По желанию — пройтись по 🟠 (см. выше).
+### HH OAuth (#22195) — ждём подтверждения партнёра
+Заявка на partner-приложение HH (для legacy-OAuth-флоу через `lib/hh-api.ts`).
+В новой архитектуре прод не зависит от OAuth — данные приходят из CSV-выгрузок аналитики.
+OAuth понадобится для **near-real-time** обновления воронки (CSV выгружается вручную, max раз в день).
+Когда #22195 одобрят:
+- Включить cron-скрипт `scripts/sync-hh.ts` (не написан, см. блок «Cron» ниже).
+- Менеджерам подключить токены через `/admin/integrations` (`hh/[manager_id]/connect`).
 
-### Промпт — cron-скрипты
-````
-Прочитай SPEC.md (§5.4 sync-hh, §5.5a Манго, §5.10 AI weekly_report, §5.9 cron-расписание,
-Блок 0 переменные окружения Beget VPS), CLAUDE.md, и готовую логику lib/hh-api.ts,
-lib/mango.ts, lib/ai/* (их можно переиспользовать).
+### SMTP — для `/reset-password`
+Страница [src/app/(auth)/reset-password/page.tsx](src/app/(auth)/reset-password/page.tsx) готова, но письмо с recovery-ссылкой Supabase сейчас не отправляет (или летит в спам через дефолтный supabase.io SMTP).
+Нужно: Supabase Dashboard → Authentication → SMTP → подключить корпоративный SMTP (Yandex 360 / SendGrid / Mailgun).
+Шаблон письма «Reset password» — кастомизировать с корректной ссылкой на `https://<host>/reset-password` (без `/auth/` — route group `(auth)` не даёт префикс).
 
-Блок Cron — скрипты для Beget VPS (pm2-cron). НЕ Next.js — отдельные node-скрипты на
-service-role клиенте (createClient supabase-js с SUPABASE_SERVICE_ROLE_KEY, без cookies).
+### Татьяна — выдать пароль / доступ
+Создать профиль в Supabase Auth (Dashboard → Authentication → Add user) + запись в `user_profiles` с ролью `manager` (или нужной).
+После выдачи доступа — менеджер должен войти и при необходимости сменить пароль через `/reset-password`.
 
-Создай в scripts/:
-- sync-hh.ts — воронка HH по активным вакансиям (см. lib/hh-api.ts runHhSync; cron 0 8-22/2 * * 1-5),
-  пишет vacancy_snapshots, рефреш токенов, sync_logs (source 'hh').
-- sync-mango.ts — звонки за день (см. lib/mango.ts runMangoSync; cron 0 20 * * 1-5),
-  upsert daily_activities, sync_logs (source 'mango').
-- refresh-hh-tokens.ts — обновление HH OAuth токенов (cron 0 7 * * *).
-- generate-weekly-report.ts — AI weekly_report + аномалии/прогнозы по всем менеджерам
-  (cron 30 20 * * 5), INSERT ai_insights (triggered_by 'cron').
-- tsconfig.scripts.json (CommonJS/node) + ecosystem.config.js (pm2) с расписаниями выше.
-- Логирование ошибок через error_logs (source cron_hh/cron_mango/cron_ai); Telegram-алерт критичных.
+### Cron-скрипты (Beget VPS, `scripts/`) — НЕ начато
+`sync-hh.ts`, `sync-mango.ts`, `refresh-hh-tokens.ts`, `generate-weekly-report.ts` — отложено до получения HH OAuth. Логика частично переиспользуется из `lib/hh-api.ts`, `lib/mango.ts`, `lib/ai/*`.
 
-ВАЖНО: скрипты вне Next-сборки — не ломать `next build`. Сборка скриптов: tsc -p tsconfig.scripts.json.
-Зависимости (@supabase/supabase-js и т.д.) уже есть. Не вызывать Next-only API. Обнови HANDOFF.md.
-````
+### 🟠 Из ревью 4.5 (необязательные, до v2)
+- Middleware ролевых редиректов (сейчас защита в page-guard'ах).
+- RLS `ai_insights` / `hh_manager_stats`: `manager_id IS NULL` виден любому авторизованному.
+- `politeness_company` пишется DELETE+INSERT (теперь unused — индекс компании считается в API, можно почистить таблицу).
+
+---
+
+## ▶️ Следующий шаг: разобраться, почему `/api/sync/sheets` возвращает 0 записей
+
+### Диагностический чек-лист
+1. **Открыть `/sync/logs`** → найти последний запуск `source='sheets'`. Зафиксировать `records_total`, `records_updated`, `error_message`.
+2. **Запустить sync через UI** (`/sync` → кнопка Google Sheets) — посмотреть ответ в Network-вкладке DevTools. В JSON будет:
+   - `vacancies_upserted` — сколько строк прошло до upsert.
+   - `skipped_no_title` — пустые названия.
+   - `skipped_no_manager` + `skipped_no_manager_rows: [{ row, name }]` — кого не нашли.
+   - `bonuses_upserted`, `skipped_managers` — из блока HR-менеджеров.
+3. **Проверить Vercel env vars:**
+   ```
+   GOOGLE_SHEETS_VACANCIES_TAB = Data         # не «Вакансии» и не пусто!
+   GOOGLE_SHEETS_MANAGERS_TAB  = HR_менеджеры # с подчёркиванием, не пробелом
+   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY         # не _KEY!
+   ```
+4. **Проверить лист в Google-таблице:**
+   - Имя вкладки точно `Data` (или то что в env). Регистр и язык важны.
+   - Сервис-аккаунт (значение `GOOGLE_SERVICE_ACCOUNT_EMAIL`) расшарен на таблицу с правом Viewer.
+   - Строка 1 — заголовки, строка 2+ — данные.
+5. **Если `skipped_no_manager` > 0** — открыть [src/app/api/admin/users](src/app/api/admin/users) и сверить `user_profiles.full_name` с тем что в колонке O листа. Расхождение в пробелах / ё/е / инициалах vs полное ФИО. Решения: (a) поправить ФИО в листе под `user_profiles`, (b) сделать `full_name` в листе единым стилем, (c) усложнить `normalizeFullName` (например, поддержать «Иванов И.И.» ↔ «Иванов Иван Иванович»).
+6. **Если `records_total=0`** — `readSheetTab` ничего не вернул:
+   - сервис-аккаунт не имеет доступа → молчаливый пустой ответ HH/Google
+   - имя вкладки неправильное → Google вернёт ошибку (упадёт в SHEETS_SYNC_ERROR)
+   - запустить хелс-чек: `POST /api/admin/integrations/sheets/test` (admin-only) — он читает meta `VACANCIES_TAB()` и вернёт headers/totalRows. Это самый быстрый изолированный тест связи + имени вкладки.
+
+### Что я бы добавил в код для лучшей диагностики (пока не делал)
+- В ответе sync добавить `headers_found: string[]` (фактические заголовки строки 1) — сразу видно, считалось ли вообще что-то.
+- В `sync_logs.error_message` записывать первые 3 имени из `skipped_no_manager_rows` при `records_updated=0` — чтобы можно было дебажить без вызова UI.
+
+---
+
+## 📝 Последние коммиты
+
+```
+2826568 fix: vacancy snapshots dedup migration
+def46d5 chore: rename Google Sheets env vars and HR menedzhery tab to underscore form
+89e1d51 fix: google sheets auth credentials
+c5f004e feat: CSV sync for HH vacancies and managers
+36d6858 fix: pass role not icon functions across RSC boundary
+d1c3946 fix: dashboard 500 - safe destructuring, maybeSingle, redirect handling
+d56300d initial commit
+```
+
+Незакоммичено сейчас (working tree):
+- `supabase/migrations/20260523150000_vacancies_sheets_fields.sql`
+- `src/types/database.ts` (+location/positions_count/customer_name)
+- `src/lib/google-sheets.ts` (VACANCIES_TAB='Data', SheetRow.cells)
+- `.env.example` (VACANCIES_TAB=Data)
+- `src/app/api/sync/sheets/route.ts` (Data → vacancies + hired_employees dual write)
+- `HANDOFF.md` (этот файл)
+
+Готово к одному коммиту: `feat: sheets sync via Data tab (vacancies upsert + dual write to hired_employees)`.
+
+---
+
+## ⚠️ Ключевые решения, отклоняющиеся от SPEC (актуальные)
+
+1. **Окно редактирования активностей — 30 дней** (а не 7 из SPEC §5.2). **Не откатывать.**
+2. **Статус KPI: `'lagging'`** (не SPEC `'behind'`) для 70–89%.
+3. **service-role в `/api/dashboard/team` и `/divisions`** — RLS не пускает executive.
+4. **`hires_per_month` масштабируется** по workdays периода (`scaledHiresPlan`).
+5. **HH CSV вместо OAuth API** — основная архитектура синхронизации с HH. OAuth остаётся в `lib/hh-api.ts` для будущего near-real-time.
+6. **Google Sheets лист «Data»** (не «Вакансии») — источник истины по вакансиям. Колонка статуса — N без заголовка.
+7. **`avg_response_hours`** убран из UI (поле БД остаётся nullable). Новый отчёт HH этой колонки не отдаёт.
+8. **`politeness_company`** считается на лету как weighted average по менеджерам, не из отдельного CSV.
+9. **`/reset-password`** живёт на `/reset-password` (не `/auth/reset-password` как в SPEC) — route group `(auth)` без префикса.
+10. **`PostgreSQL 17`** (не 15 как было в SPEC). Sync'нуто во всех источниках: `config.toml`, SPEC, CLAUDE, supabase/README.
