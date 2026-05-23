@@ -243,15 +243,52 @@ export async function POST() {
       // «Менеджеры»: «Иванов И.И., Петров П.П.» → берём первого.
       const managersRaw = (row.values['Менеджеры'] ?? '').trim();
       const firstManager = managersRaw.split(/[,;]/)[0]?.trim() ?? '';
-      const managerId = firstManager
+      let managerId: string | null = firstManager
         ? profileByNormName.get(normalizeFullName(firstManager)) ?? null
         : null;
+
+      // Авто-провижининг: если ФИО есть, но его нет в user_profiles —
+      // создаём auth-юзера так же, как блок syncManagersList выше.
+      // Сначала ищем по fallback-email (на случай если профиль есть, но имена
+      // в листе Data и листе «HR_менеджеры» написаны по-разному), затем createUser.
+      // Триггер handle_new_user сам материализует user_profiles из user_metadata.
+      if (!managerId && firstManager) {
+        const fallbackEmail = emailFromName(firstManager);
+        const { data: existingByEmail } = await db
+          .from('user_profiles')
+          .select('id')
+          .ilike('email', fallbackEmail)
+          .maybeSingle();
+
+        if (existingByEmail?.id) {
+          managerId = existingByEmail.id;
+        } else {
+          const { data: created, error: createErr } = await db.auth.admin.createUser({
+            email: fallbackEmail,
+            password: crypto.randomUUID(),
+            email_confirm: true,
+            user_metadata: { full_name: firstManager, role: 'manager' },
+          });
+          if (createErr) {
+            console.log(
+              'DEBUG vacancy auto-create failed:', createErr.message,
+              'name:', firstManager, 'email:', fallbackEmail,
+            );
+          } else if (created?.user?.id) {
+            managerId = created.user.id;
+            createdUsers += 1;
+            console.log('DEBUG auto-create from vacancy:', managerId, firstManager);
+          }
+        }
+        if (managerId) {
+          profileByNormName.set(normalizeFullName(firstManager), managerId);
+        }
+      }
+
       if (!managerId) {
-        console.log('DEBUG skip manager:', JSON.stringify({
+        console.log('DEBUG skip manager (after auto-create attempt):', JSON.stringify({
           row: row.rowIndex,
           name: firstManager,
-          normalized: normalizeFullName(firstManager),
-          availableKeys: [...profileByNormName.keys()].slice(0, 10),
         }));
         skippedManagersInVacancies.push({ row: row.rowIndex, name: firstManager || '(пусто)' });
         continue;
