@@ -44,6 +44,9 @@ interface CompanyPoliteness {
   responses_received: number | null;
   responses_viewed: number | null;
   responses_answered: number | null;
+  // ⓟ Платные действия — отдельно (см. SPEC §5.3 разбивка по платным/бесплатным).
+  resume_views_from_search: number | null;
+  invitations_from_db: number | null;
 }
 interface ManagerPoliteness {
   manager_id: string;
@@ -180,10 +183,20 @@ export function EfficiencyClient() {
                   <Star className="size-5 text-yellow-500" />
                   ИВ компании: {Math.round(politeness.company.politeness_index)}
                 </span>
-                <span className="text-muted-foreground text-sm">
-                  Откликов: {politeness.company.responses_received ?? '—'} · Просмотрено:{' '}
-                  {politeness.company.responses_viewed ?? '—'} · Отвечено:{' '}
-                  {politeness.company.responses_answered ?? '—'}
+                <span className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-sm">
+                  <span>Откликов: {politeness.company.responses_received ?? '—'}</span>
+                  <span>
+                    Просмотры (отклики): {politeness.company.responses_viewed ?? '—'}
+                  </span>
+                  <span title="Платное действие — менеджер сам нашёл резюме в базе HH">
+                    💰 Просмотры (поиск):{' '}
+                    {politeness.company.resume_views_from_search ?? '—'}
+                  </span>
+                  <span title="Платное действие — приглашение по контакту из базы HH">
+                    💰 Приглашения из базы:{' '}
+                    {politeness.company.invitations_from_db ?? '—'}
+                  </span>
+                  <span>Отвечено: {politeness.company.responses_answered ?? '—'}</span>
                 </span>
               </CardContent>
             </Card>

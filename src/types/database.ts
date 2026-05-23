@@ -502,6 +502,8 @@ export type Database = {
           responses_received: number | null;
           responses_viewed: number | null;
           responses_answered: number | null;
+          resume_views_from_search: number | null;
+          invitations_from_db: number | null;
           politeness_index: number | null;
           avg_response_hours: number | null;
           source_csv: string;
@@ -518,6 +520,8 @@ export type Database = {
           responses_received?: number | null;
           responses_viewed?: number | null;
           responses_answered?: number | null;
+          resume_views_from_search?: number | null;
+          invitations_from_db?: number | null;
           politeness_index?: number | null;
           avg_response_hours?: number | null;
           source_csv: string;
@@ -534,6 +538,8 @@ export type Database = {
           responses_received?: number | null;
           responses_viewed?: number | null;
           responses_answered?: number | null;
+          resume_views_from_search?: number | null;
+          invitations_from_db?: number | null;
           politeness_index?: number | null;
           avg_response_hours?: number | null;
           source_csv?: string;

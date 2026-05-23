@@ -23,12 +23,16 @@ const MAX_CSV_BYTES = 10 * 1024 * 1024;
 
 // ── Колонки CSV (центральная точка истины маппинга) ───────────────────────────
 // recruitment_analytics_managers_statistics_*.csv (UTF-8 BOM, разделитель ';')
-//   ├ "Менеджер"                          → hh_manager_stats.manager_name_hh
-//   ├ "id менеджера"                      → справочно (не используется — матчим по ФИО)
-//   ├ "Индекс вежливости"                 → politeness_index (parsePercent: "97%" → 97)
-//   ├ "Отклики, шт."                      → responses_received
-//   ├ "Просмотры резюме из отклика, шт."  → responses_viewed
-//   └ "Приглашений из откликов, шт."      → responses_answered
+//   ├ "Менеджер"                            → hh_manager_stats.manager_name_hh
+//   ├ "id менеджера"                        → справочно (матчинг через ФИО + hh_manager_id)
+//   ├ "Индекс вежливости"                   → politeness_index (parsePercent: "97%" → 97)
+//   ├ "Отклики, шт."                        → responses_received
+//   ├ "Просмотры резюме из отклика, шт."    → responses_viewed (БЕСПЛАТНО)
+//   ├ "Приглашений из откликов, шт."        → responses_answered
+//   ├ "Просмотры резюме из поиска, шт." ⓟ   → resume_views_from_search (ПЛАТНО)
+//   └ "Приглашений из базы резюме, шт." ⓟ   → invitations_from_db (ПЛАТНО)
+//   ⓟ — платные действия (менеджер сам ищет в базе HH). Старые CSV эти
+//   колонки не отдают → пишем NULL и не падаем.
 //   Среднее время ответа в новом отчёте HH отсутствует → avg_response_hours = NULL.
 //
 // recruitment_analytics_vacancies_*.csv (UTF-8 BOM, разделитель ';')
@@ -280,8 +284,14 @@ export async function POST(request: NextRequest) {
           stat_date: statDate,
           politeness_index: parsePercent(getCol(row, 'Индекс вежливости')),
           responses_received: parseNumber(getCol(row, 'Отклики')),
+          // Бесплатные просмотры (из входящих откликов).
           responses_viewed: parseNumber(getCol(row, 'Просмотры резюме из отклика')),
           responses_answered: parseNumber(getCol(row, 'Приглашений из откликов')),
+          // ⓟ Платные просмотры (менеджер искал в базе HH) — nullable, старые
+          //   CSV без этой колонки → NULL.
+          resume_views_from_search: parseNumber(getCol(row, 'Просмотры резюме из поиска')),
+          // ⓟ Платные приглашения из базы резюме.
+          invitations_from_db: parseNumber(getCol(row, 'Приглашений из базы')),
           // avg_response_hours: новый отчёт HH этой колонки не отдаёт → NULL.
           avg_response_hours: null,
           source_csv: 'politeness_managers',

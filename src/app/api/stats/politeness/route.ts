@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     const { data: rows, error: rowsError } = await supabase
       .from('hh_manager_stats')
       .select(
-        'manager_id, stat_date, source_csv, politeness_index, hh_calls_count, responses_received, responses_viewed, responses_answered, avg_response_hours, manager:user_profiles!hh_manager_stats_manager_id_fkey(id, full_name)',
+        'manager_id, stat_date, source_csv, politeness_index, hh_calls_count, responses_received, responses_viewed, responses_answered, resume_views_from_search, invitations_from_db, avg_response_hours, manager:user_profiles!hh_manager_stats_manager_id_fkey(id, full_name)',
       )
       .not('manager_id', 'is', null)
       .gte('stat_date', from)
@@ -98,8 +98,12 @@ export async function GET(request: NextRequest) {
       politeness_index: e.latestPoliteness?.politeness_index ?? null,
       hh_calls_count: e.latestCalls ?? e.latestPoliteness?.hh_calls_count ?? null,
       responses_received: e.latestPoliteness?.responses_received ?? null,
+      // «Просмотры (отклики)» — бесплатные, из входящих откликов.
       responses_viewed: e.latestPoliteness?.responses_viewed ?? null,
       responses_answered: e.latestPoliteness?.responses_answered ?? null,
+      // ⓟ Платные: менеджер искал в базе HH.
+      resume_views_from_search: e.latestPoliteness?.resume_views_from_search ?? null,
+      invitations_from_db: e.latestPoliteness?.invitations_from_db ?? null,
       trend: trendOf(e.politenessHistory[0] ?? null, e.politenessHistory[1] ?? null),
     }));
 
@@ -110,6 +114,8 @@ export async function GET(request: NextRequest) {
     let companyResponses = 0;
     let companyViewed = 0;
     let companyAnswered = 0;
+    let companyViewsFromSearch = 0;
+    let companyInvitationsFromDb = 0;
 
     const weighted: { pi: number; w: number }[] = [];
     for (const m of managers) {
@@ -119,6 +125,8 @@ export async function GET(request: NextRequest) {
       companyResponses += m.responses_received ?? 0;
       companyViewed += m.responses_viewed ?? 0;
       companyAnswered += m.responses_answered ?? 0;
+      companyViewsFromSearch += m.resume_views_from_search ?? 0;
+      companyInvitationsFromDb += m.invitations_from_db ?? 0;
     }
     if (weighted.length > 0) {
       const totalWeight = weighted.reduce((s, x) => s + x.w, 0);
@@ -135,6 +143,9 @@ export async function GET(request: NextRequest) {
           responses_received: companyResponses,
           responses_viewed: companyViewed,
           responses_answered: companyAnswered,
+          // ⓟ Платные действия за период (NULL у менеджеров без CSV → 0).
+          resume_views_from_search: companyViewsFromSearch,
+          invitations_from_db: companyInvitationsFromDb,
           // avg_response_hours убран: новый отчёт HH этой колонки не отдаёт.
           last_updated: to,
         }
