@@ -184,7 +184,10 @@ export async function POST(request: NextRequest) {
     // Приоритет матчинга:
     //   1) hh_manager_id (точный, стабильный — id из HH)
     //   2) exact normalize по ФИО (legacy, для записей где hh_manager_id ещё пуст)
-    //   3) fuzzy по фамилии (для опечаток / двойных имён)
+    //   3) первые два слова (Фамилия + Имя) — HH часто отдаёт ФИО с отчеством
+    //      («Анисимова Диана Витальевна»), а в Sheets без отчества;
+    //      матчим только если кандидат единственный.
+    //   4) fuzzy по фамилии (для опечаток / двойных имён)
     // После успешного матча по ФИО — обогащаем hr_manager_syncs новым
     // hh_manager_id, чтобы следующий раз сразу шла ветка (1).
     const { data: syncs } = await db
@@ -195,9 +198,19 @@ export async function POST(request: NextRequest) {
       linked.filter((s) => s.hh_manager_id).map((s) => [String(s.hh_manager_id), s]),
     );
     const exactMap = new Map(linked.map((s) => [normalizeName(s.sheet_full_name), s]));
+    // Группируем по «Фамилия Имя»: если два sheet-имени дают одинаковые
+    // первые два слова — матчить нельзя (ambiguous), используем длину массива.
+    const firstTwoMap = new Map<string, typeof linked>();
+    for (const s of linked) {
+      const key = firstTwoWords(normalizeName(s.sheet_full_name));
+      const bucket = firstTwoMap.get(key) ?? [];
+      bucket.push(s);
+      firstTwoMap.set(key, bucket);
+    }
 
     let matchedById = 0;
     let matchedExact = 0;
+    let matchedFirstTwo = 0;
     let matchedFuzzy = 0;
     const fuzzyMatches: FuzzyMatch[] = [];
     const skippedNames: string[] = [];
@@ -210,7 +223,7 @@ export async function POST(request: NextRequest) {
 
       // (1) Приоритет: по hh_manager_id.
       let sync = hhManagerId ? byHhId.get(hhManagerId) : undefined;
-      let matchedVia: 'id' | 'exact' | 'fuzzy' | null = sync ? 'id' : null;
+      let matchedVia: 'id' | 'exact' | 'first_two' | 'fuzzy' | null = sync ? 'id' : null;
 
       // (2) По нормализованному ФИО.
       if (!sync) {
@@ -218,7 +231,17 @@ export async function POST(request: NextRequest) {
         if (sync) matchedVia = 'exact';
       }
 
-      // (3) Fuzzy по фамилии.
+      // (3) По первым двум словам (Фамилия + Имя). Только при единственном
+      //     кандидате, иначе риск перепутать однофамильцев.
+      if (!sync) {
+        const bucket = firstTwoMap.get(firstTwoWords(norm)) ?? [];
+        if (bucket.length === 1) {
+          sync = bucket[0];
+          matchedVia = 'first_two';
+        }
+      }
+
+      // (4) Fuzzy по фамилии.
       if (!sync) {
         const fuzzy = fuzzyManager(norm, linked);
         if (fuzzy) {
@@ -235,6 +258,7 @@ export async function POST(request: NextRequest) {
 
       if (matchedVia === 'id') matchedById += 1;
       else if (matchedVia === 'exact') matchedExact += 1;
+      else if (matchedVia === 'first_two') matchedFirstTwo += 1;
       else if (matchedVia === 'fuzzy') matchedFuzzy += 1;
 
       // Обогащение: если у записи нет hh_manager_id, а из CSV пришёл —
@@ -266,7 +290,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const matched = matchedById + matchedExact + matchedFuzzy;
+    const matched = matchedById + matchedExact + matchedFirstTwo + matchedFuzzy;
     await logSync(db, user.id, rows.length, matched, 'ok');
 
     return apiSuccess({
@@ -277,6 +301,7 @@ export async function POST(request: NextRequest) {
         rows_matched: matched,
         rows_matched_by_id: matchedById,
         rows_matched_exact: matchedExact,
+        rows_matched_first_two: matchedFirstTwo,
         rows_matched_fuzzy: matchedFuzzy,
         fuzzy_matches: fuzzyMatches,
         rows_skipped: skippedNames.length,
@@ -309,6 +334,12 @@ function parseRuDate(value: string): string | null {
   const m = v.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if (!m) return null;
   return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+/** Первые два слова нормализованного ФИО («Фамилия Имя»). Используется
+ *  для матчинга «Анисимова Диана Витальевна» (HH) ↔ «Анисимова Диана» (Sheets). */
+function firstTwoWords(normalizedName: string): string {
+  return normalizedName.split(' ').slice(0, 2).join(' ');
 }
 
 /**
