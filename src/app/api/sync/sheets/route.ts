@@ -80,21 +80,60 @@ export async function POST() {
     );
 
     const skippedManagers: string[] = [];
+    let createdUsers = 0;
     for (const row of managerRows) {
       const name = pickName(row);
       if (!name) continue;
-      const email = pickEmail(row);
-      const userProfileId =
-        (email ? profileByEmail.get(email.toLowerCase()) : undefined) ??
+      const emailFromSheet = pickEmail(row);
+      let userProfileId =
+        (emailFromSheet ? profileByEmail.get(emailFromSheet.toLowerCase()) : undefined) ??
         profileByName.get(name.toLowerCase()) ??
         null;
+
+      // Авто-создание пользователя, если профиль не найден.
+      // user_profiles создаст триггер handle_new_user из user_metadata —
+      // ручной INSERT не нужен (был бы дубль/конфликт по PK).
+      // Идемпотентно: сначала ищем профиль по fallback-email, потом createUser.
+      if (!userProfileId) {
+        const fallbackEmail = (emailFromSheet || emailFromName(name)).toLowerCase();
+        const { data: existingByEmail } = await db
+          .from('user_profiles')
+          .select('id')
+          .eq('email', fallbackEmail)
+          .maybeSingle();
+
+        if (existingByEmail?.id) {
+          userProfileId = existingByEmail.id;
+        } else {
+          const { data: created, error: createErr } = await db.auth.admin.createUser({
+            email: fallbackEmail,
+            password: crypto.randomUUID(),
+            email_confirm: true,
+            user_metadata: { full_name: name, role: 'manager' },
+          });
+          if (createErr) {
+            console.log(
+              'DEBUG createUser failed:', createErr.message,
+              'name:', name, 'email:', fallbackEmail,
+            );
+          } else if (created?.user?.id) {
+            userProfileId = created.user.id;
+            createdUsers += 1;
+            // Прогрев кэшей, чтобы повторы в этой же sync-сессии находили его.
+            profileByName.set(name.toLowerCase(), userProfileId);
+            profileByEmail.set(fallbackEmail, userProfileId);
+            console.log('DEBUG created user:', userProfileId, fallbackEmail);
+          }
+        }
+      }
+
       if (!userProfileId) skippedManagers.push(name);
 
       await db.from('hr_manager_syncs').upsert(
         {
           sheet_full_name: name,
           user_profile_id: userProfileId,
-          email_sheet: email || null,
+          email_sheet: emailFromSheet || null,
           is_active_sheet: pickActive(row),
           synced_at: new Date().toISOString(),
         },
@@ -330,6 +369,9 @@ export async function POST() {
         skipped_no_manager_rows: skippedManagersInVacancies,
         bonuses_upserted: bonusesUpserted,
         skipped_managers: skippedManagers,
+        // Сколько auth-пользователей создано автоматически из листа «HR_менеджеры»
+        // (для тех ФИО, которых ещё не было в user_profiles).
+        created_users: createdUsers,
         started_at: log.started_at,
         finished_at: finishedAt,
       },
@@ -406,4 +448,32 @@ function pickPositiveInt(value: string | undefined): number | null {
   if (!raw) return null;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// ── Авто-создание пользователей по списку из Sheets ─────────────────────────
+
+const RU_TO_EN: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z',
+  и: 'i', й: 'i', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r',
+  с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh',
+  щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'iu', я: 'ia',
+};
+
+/** Простая транслитерация ФИО кириллица→латиница для генерации fallback-email. */
+function transliterate(input: string): string {
+  return input
+    .toLowerCase()
+    .split('')
+    .map((ch) => RU_TO_EN[ch] ?? ch)
+    .join('');
+}
+
+/** «Иванов Иван Иванович» → «ivanov.ivan.ivanovich@hr.local».
+ *  Используется когда у менеджера в Sheets нет email — чтобы createUser
+ *  получил уникальный детерминированный адрес и был идемпотентен. */
+function emailFromName(name: string): string {
+  const slug = transliterate(name)
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+  return `${slug || 'user'}@hr.local`;
 }
