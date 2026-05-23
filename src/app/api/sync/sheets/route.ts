@@ -147,6 +147,15 @@ export async function POST() {
 
     const vacancyRows = await readSheetTab(VACANCIES_TAB());
 
+    // DEBUG (временно): структура первых строк листа Data.
+    console.log('DEBUG VACANCIES_TAB:', VACANCIES_TAB());
+    console.log('DEBUG total rows:', vacancyRows.length);
+    console.log('DEBUG row[0]:', JSON.stringify(vacancyRows[0]));
+    console.log('DEBUG row[1]:', JSON.stringify(vacancyRows[1]));
+    console.log('DEBUG row[2]:', JSON.stringify(vacancyRows[2]));
+    console.log('DEBUG row[0].cells[13]:', vacancyRows[0]?.cells?.[13]);
+    console.log('DEBUG row[0].cells length:', vacancyRows[0]?.cells?.length);
+
     // Карта активных user_profiles по нормализованному ФИО (для поиска manager_id).
     const profileByNormName = new Map(
       (profiles ?? []).map((p) => [normalizeFullName(p.full_name), p.id]),
