@@ -9,7 +9,7 @@ import {
   workdaysBetween,
   kpiPct,
   statusFromPct,
-  scaledHiresPlan,
+  currentMonthRange,
 } from '@/lib/api-helpers';
 import { createClient } from '@/lib/supabase/server';
 import { dashboardPeriodSchema } from '@/lib/validations';
@@ -64,14 +64,17 @@ export async function GET(request: NextRequest) {
       .eq('status', 'active');
     if (vacError) throw new ApiError(500, 'DB_ERROR', vacError.message);
 
-    const { data: hired, error: hiredError } = await supabase
-      .from('hired_employees')
-      .select('hired_date, vacancy:vacancies!hired_employees_vacancy_id_fkey(manager_id)')
-      .eq('employment_type', 'employee')
-      .gte('hired_date', from as string)
-      .lte('hired_date', to as string);
-    if (hiredError) throw new ApiError(500, 'DB_ERROR', hiredError.message);
-    const hiredForUser = (hired ?? []).filter((h) => h.vacancy?.manager_id === user.id);
+    // «Выведено» — всегда за полный текущий месяц через vacancies.closed_at,
+    // независимо от селектора периода (SPEC §5.3).
+    const month = currentMonthRange();
+    const { data: closedThisMonth, error: closedError } = await supabase
+      .from('vacancies')
+      .select('id, closed_at')
+      .eq('manager_id', user.id)
+      .eq('status', 'closed')
+      .gte('closed_at', month.from)
+      .lte('closed_at', month.to);
+    if (closedError) throw new ApiError(500, 'DB_ERROR', closedError.message);
 
     const callsFact = (activities ?? []).reduce(
       (s, a) => s + (a.mango_calls_count ?? 0) + (a.hh_calls_count ?? 0),
@@ -82,16 +85,13 @@ export async function GET(request: NextRequest) {
     const kpi = {
       calls: kpiMetric(callsFact, plan.calls_per_day * workdays),
       interviews: kpiMetric(interviewsFact, plan.interviews_per_day * workdays),
-      // hires_per_month масштабируется по периоду (review 4.5 #3).
-      hires: kpiMetric(
-        hiredForUser.length,
-        scaledHiresPlan(plan.hires_per_month, from as string, to as string),
-      ),
+      hires: kpiMetric((closedThisMonth ?? []).length, plan.hires_per_month),
     };
 
     const hiredByDate = new Map<string, number>();
-    for (const h of hiredForUser) {
-      hiredByDate.set(h.hired_date, (hiredByDate.get(h.hired_date) ?? 0) + 1);
+    for (const v of closedThisMonth ?? []) {
+      if (!v.closed_at) continue;
+      hiredByDate.set(v.closed_at, (hiredByDate.get(v.closed_at) ?? 0) + 1);
     }
 
     const by_day = (activities ?? []).map((a) => ({

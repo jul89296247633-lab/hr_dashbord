@@ -10,7 +10,7 @@ import {
   workdaysBetween,
   kpiPct,
   calcManagerStatus,
-  scaledHiresPlan,
+  currentMonthRange,
 } from '@/lib/api-helpers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { dashboardPeriodSchema } from '@/lib/validations';
@@ -65,8 +65,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Параллельно: планы, активности за период, активные вакансии, найм за период.
-    const [plansRes, activitiesRes, vacanciesRes, hiredRes] = await Promise.all([
+    // «Выведено» считается всегда за полный текущий месяц через vacancies.closed_at,
+    // независимо от селектора периода страницы — план найма у менеджера месячный.
+    const month = currentMonthRange();
+
+    // Параллельно: планы, активности за период, активные вакансии (без даты),
+    // закрытые за текущий месяц (по vacancies.closed_at).
+    const [plansRes, activitiesRes, vacanciesRes, closedRes] = await Promise.all([
       db
         .from('manager_plans')
         .select('manager_id, calls_per_day, interviews_per_day, hires_per_month, effective_from, created_at')
@@ -86,17 +91,18 @@ export async function GET(request: NextRequest) {
         .eq('status', 'active')
         .in('manager_id', managerIds),
       db
-        .from('hired_employees')
-        .select('vacancy:vacancies!hired_employees_vacancy_id_fkey(manager_id)')
-        .eq('employment_type', 'employee')
-        .gte('hired_date', from as string)
-        .lte('hired_date', to as string),
+        .from('vacancies')
+        .select('manager_id')
+        .eq('status', 'closed')
+        .in('manager_id', managerIds)
+        .gte('closed_at', month.from)
+        .lte('closed_at', month.to),
     ]);
 
     if (plansRes.error) throw new ApiError(500, 'DB_ERROR', plansRes.error.message);
     if (activitiesRes.error) throw new ApiError(500, 'DB_ERROR', activitiesRes.error.message);
     if (vacanciesRes.error) throw new ApiError(500, 'DB_ERROR', vacanciesRes.error.message);
-    if (hiredRes.error) throw new ApiError(500, 'DB_ERROR', hiredRes.error.message);
+    if (closedRes.error) throw new ApiError(500, 'DB_ERROR', closedRes.error.message);
 
     // Активный план на менеджера: первый в порядке effective_from DESC, created_at DESC.
     const planByManager = new Map<string, { calls_per_day: number; interviews_per_day: number; hires_per_month: number }>();
@@ -128,11 +134,10 @@ export async function GET(request: NextRequest) {
       activeVacByManager.set(v.manager_id, (activeVacByManager.get(v.manager_id) ?? 0) + 1);
     }
 
-    // Найм по менеджеру (через вакансию).
+    // Закрытые вакансии за текущий месяц по менеджеру (источник «Выведено»).
     const hiredByManager = new Map<string, number>();
-    for (const h of hiredRes.data ?? []) {
-      const mid = h.vacancy?.manager_id;
-      if (mid) hiredByManager.set(mid, (hiredByManager.get(mid) ?? 0) + 1);
+    for (const v of closedRes.data ?? []) {
+      hiredByManager.set(v.manager_id, (hiredByManager.get(v.manager_id) ?? 0) + 1);
     }
 
     // KPI на каждого менеджера.
@@ -145,12 +150,9 @@ export async function GET(request: NextRequest) {
 
       const calls: KpiMetric = metric(callsFact, plan.calls_per_day * workdays);
       const interviews: KpiMetric = metric(interviewsFact, plan.interviews_per_day * workdays);
-      // hires_per_month масштабируем по рабочим дням периода относительно месяца
-      // (review 4.5 #3: иначе все «critical» при period=today/week).
-      const hired: KpiMetric = metric(
-        hiredFact,
-        scaledHiresPlan(plan.hires_per_month, from as string, to as string),
-      );
+      // «Выведено» — всегда за текущий месяц целиком (closedRes уже отфильтрован
+      // по month.from/month.to). План — hires_per_month без масштабирования.
+      const hired: KpiMetric = metric(hiredFact, plan.hires_per_month);
 
       return {
         id: m.id,

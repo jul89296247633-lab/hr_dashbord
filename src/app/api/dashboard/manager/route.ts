@@ -10,7 +10,7 @@ import {
   workdaysBetween,
   kpiPct,
   statusFromPct,
-  scaledHiresPlan,
+  currentMonthRange,
 } from '@/lib/api-helpers';
 import { createClient } from '@/lib/supabase/server';
 import { dashboardPeriodSchema, uuidSchema } from '@/lib/validations';
@@ -91,22 +91,32 @@ export async function GET(request: NextRequest) {
       .eq('status', 'active');
     if (vacError) throw new ApiError(500, 'DB_ERROR', vacError.message);
 
-    // Найм за период (через вакансии менеджера).
-    // Берём ВСЕ записи (probation + hired) одним запросом и фильтруем в памяти —
-    // дальше отдельно считаем «выведено» и «на стажировке» (SPEC §5.3).
-    const { data: hired, error: hiredError } = await supabase
+    // «Выведено» — всегда за полный текущий месяц через vacancies.closed_at,
+    // независимо от селектора периода: бизнес-правило (SPEC §5.3) — план найма
+    // помесячный, поэтому и факт всегда смотрим в окне месяца.
+    const month = currentMonthRange();
+    const { data: closedThisMonth, error: closedError } = await supabase
+      .from('vacancies')
+      .select('id, closed_at')
+      .eq('manager_id', targetManagerId)
+      .eq('status', 'closed')
+      .gte('closed_at', month.from)
+      .lte('closed_at', month.to);
+    if (closedError) throw new ApiError(500, 'DB_ERROR', closedError.message);
+    const hiredFact = (closedThisMonth ?? []).length;
+
+    // Стажёры по-прежнему за выбранный period — это «промежуточный этап»,
+    // не относится к плану/факту найма.
+    const { data: interns, error: internsError } = await supabase
       .from('hired_employees')
-      .select('hired_date, status, vacancy:vacancies!hired_employees_vacancy_id_fkey(manager_id)')
-      .in('status', ['hired', 'probation'])
+      .select('hired_date, vacancy:vacancies!hired_employees_vacancy_id_fkey(manager_id)')
+      .eq('status', 'probation')
       .gte('hired_date', from as string)
       .lte('hired_date', to as string);
-    if (hiredError) throw new ApiError(500, 'DB_ERROR', hiredError.message);
-
-    const hiredForManager = (hired ?? []).filter(
+    if (internsError) throw new ApiError(500, 'DB_ERROR', internsError.message);
+    const probationFact = (interns ?? []).filter(
       (h) => h.vacancy?.manager_id === targetManagerId,
-    );
-    const hiredOnly = hiredForManager.filter((h) => h.status === 'hired');
-    const probationOnly = hiredForManager.filter((h) => h.status === 'probation');
+    ).length;
 
     // Факты.
     const callsFact = (activities ?? []).reduce(
@@ -114,20 +124,21 @@ export async function GET(request: NextRequest) {
       0,
     );
     const interviewsFact = (activities ?? []).reduce((s, a) => s + (a.interviews_count ?? 0), 0);
-    const hiredFact = hiredOnly.length;
-    const probationFact = probationOnly.length;
 
     const kpi = {
       calls: kpiMetric(callsFact, plan.calls_per_day * workdays),
       interviews: kpiMetric(interviewsFact, plan.interviews_per_day * workdays),
-      // hires_per_month масштабируется по периоду (review 4.5 #3).
-      hires: kpiMetric(hiredFact, scaledHiresPlan(plan.hires_per_month, from as string, to as string)),
+      // План — hires_per_month как есть (метрика помесячная).
+      hires: kpiMetric(hiredFact, plan.hires_per_month),
     };
 
-    // Найм по дням (только status='hired'; стажировка считается отдельным счётчиком).
+    // Найм по дням — для разбивки by_day используем те же закрытые вакансии
+    // (за месяц), мапим по closed_at. Если день вне activity-периода — он
+    // просто не попадёт в by_day (фильтр activity_date ниже).
     const hiredByDate = new Map<string, number>();
-    for (const h of hiredOnly) {
-      hiredByDate.set(h.hired_date, (hiredByDate.get(h.hired_date) ?? 0) + 1);
+    for (const v of closedThisMonth ?? []) {
+      if (!v.closed_at) continue;
+      hiredByDate.set(v.closed_at, (hiredByDate.get(v.closed_at) ?? 0) + 1);
     }
 
     // Разбивка по дням (по дням, где есть активности).

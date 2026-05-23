@@ -199,3 +199,18 @@ export function scaledHiresPlan(
   if (workdaysMonth <= 0) return monthlyPlan;
   return Math.max(Math.round((monthlyPlan * workdaysPeriod) / workdaysMonth), 0);
 }
+
+/** Полный текущий календарный месяц [1-е … последний день].
+ *  Используется для метрики «Выведено» / закрытые вакансии: SPEC §5.3 фиксирует
+ *  её как помесячную, не зависящую от селектора периода страницы. */
+export function currentMonthRange(): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const mm = String(m + 1).padStart(2, '0');
+  return {
+    from: `${y}-${mm}-01`,
+    to: `${y}-${mm}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
