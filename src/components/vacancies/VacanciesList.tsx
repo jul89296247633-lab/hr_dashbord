@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Plus, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Plus, AlertCircle, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import type { Role } from '@/types';
@@ -95,7 +95,79 @@ function daysInWork(openedAt: string, closedAt: string | null): number | null {
   return Math.max(0, Math.round(ms / 86_400_000));
 }
 
+type SortField =
+  | 'title'
+  | 'subdivision'
+  | 'location'
+  | 'manager'
+  | 'status'
+  | 'opened_at'
+  | 'days_in_work';
+type SortDirection = 'asc' | 'desc';
+
+const collator = new Intl.Collator('ru', { sensitivity: 'base' });
+
+function compareByField(a: VacancyRow, b: VacancyRow, field: SortField): number {
+  switch (field) {
+    case 'title':
+      return collator.compare(a.title, b.title);
+    case 'subdivision':
+      return collator.compare(a.subdivision ?? '', b.subdivision ?? '');
+    case 'location':
+      return collator.compare(a.location ?? '', b.location ?? '');
+    case 'manager':
+      return collator.compare(a.manager?.full_name ?? '', b.manager?.full_name ?? '');
+    case 'status':
+      return collator.compare(
+        STATUS_LABEL[a.status] ?? a.status,
+        STATUS_LABEL[b.status] ?? b.status,
+      );
+    case 'opened_at':
+      // YYYY-MM-DD сравнивается лексикографически корректно.
+      return a.opened_at.localeCompare(b.opened_at);
+    case 'days_in_work': {
+      const da = daysInWork(a.opened_at, a.closed_at) ?? -1;
+      const db = daysInWork(b.opened_at, b.closed_at) ?? -1;
+      return da - db;
+    }
+  }
+}
+
 const PER_PAGE = 20;
+
+function SortableHeader({
+  field,
+  label,
+  align = 'left',
+  active,
+  direction,
+  onSort,
+}: {
+  field: SortField;
+  label: string;
+  align?: 'left' | 'right';
+  active: boolean;
+  direction: SortDirection;
+  onSort: (field: SortField) => void;
+}) {
+  const Icon = active ? (direction === 'asc' ? ChevronUp : ChevronDown) : null;
+  return (
+    <TableHead className={align === 'right' ? 'text-right' : undefined}>
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        className={cn(
+          'inline-flex items-center gap-1 hover:text-foreground',
+          align === 'right' && 'justify-end',
+          active && 'text-foreground',
+        )}
+      >
+        {label}
+        {Icon && <Icon className="size-3.5" />}
+      </button>
+    </TableHead>
+  );
+}
 
 export function VacanciesList({ role }: { role: Role }) {
   const canCreate = role === 'head' || role === 'admin';
@@ -107,6 +179,27 @@ export function VacanciesList({ role }: { role: Role }) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Дефолт совпадает с серверным .order('opened_at', desc) — визуально без скачков.
+  const [sortField, setSortField] = useState<SortField>('opened_at');
+  const [sortDir, setSortDir] = useState<SortDirection>('desc');
+
+  const handleSort = useCallback((field: SortField) => {
+    setSortField((prev) => {
+      if (prev === field) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return prev;
+      }
+      setSortDir('asc');
+      return field;
+    });
+  }, []);
+
+  // Клиентская сортировка — сортируем текущую страницу (20 строк), а не весь набор.
+  // Так и просил пользователь («данные уже загружены»).
+  const sortedRows = useMemo(() => {
+    const sign = sortDir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => compareByField(a, b, sortField) * sign);
+  }, [rows, sortField, sortDir]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -182,17 +275,19 @@ export function VacanciesList({ role }: { role: Role }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Название</TableHead>
-                <TableHead>Подразделение</TableHead>
-                <TableHead>Город</TableHead>
-                {showManager && <TableHead>Менеджер</TableHead>}
-                <TableHead>Статус</TableHead>
-                <TableHead>Открыта</TableHead>
-                <TableHead className="text-right">Дней в работе</TableHead>
+                <SortableHeader field="title"        label="Название"      active={sortField === 'title'}        direction={sortDir} onSort={handleSort} />
+                <SortableHeader field="subdivision"  label="Подразделение" active={sortField === 'subdivision'}  direction={sortDir} onSort={handleSort} />
+                <SortableHeader field="location"     label="Город"         active={sortField === 'location'}     direction={sortDir} onSort={handleSort} />
+                {showManager && (
+                  <SortableHeader field="manager"    label="Менеджер"      active={sortField === 'manager'}      direction={sortDir} onSort={handleSort} />
+                )}
+                <SortableHeader field="status"       label="Статус"        active={sortField === 'status'}       direction={sortDir} onSort={handleSort} />
+                <SortableHeader field="opened_at"    label="Открыта"       active={sortField === 'opened_at'}    direction={sortDir} onSort={handleSort} />
+                <SortableHeader field="days_in_work" label="Дней в работе" align="right" active={sortField === 'days_in_work'} direction={sortDir} onSort={handleSort} />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((v) => (
+              {sortedRows.map((v) => (
                 <TableRow key={v.id}>
                   <TableCell className="font-medium">
                     <Link
