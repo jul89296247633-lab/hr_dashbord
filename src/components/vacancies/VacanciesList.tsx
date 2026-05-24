@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, AlertCircle } from 'lucide-react';
+import { Plus, AlertCircle, AlertTriangle } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import type { Role } from '@/types';
@@ -52,21 +52,34 @@ interface VacancyRow {
   manager?: { id: string; full_name: string; is_active?: boolean } | null;
 }
 
-const PRIORITY_DOT: Record<string, { color: string; label: string }> = {
-  'высокий': { color: 'bg-red-500',    label: 'Высокий приоритет' },
-  'средний': { color: 'bg-amber-500',  label: 'Средний приоритет' },
-  'низкий':  { color: 'bg-gray-400',   label: 'Низкий приоритет' },
-};
-
-function PriorityDot({ priority }: { priority: VacancyRow['priority'] }) {
-  const cfg = priority ? PRIORITY_DOT[priority] : null;
-  return (
-    <span
-      className={cn('inline-block size-2 shrink-0 rounded-full', cfg?.color ?? 'bg-muted')}
-      title={cfg?.label ?? 'Приоритет не задан'}
-      aria-label={cfg?.label ?? 'Приоритет не задан'}
-    />
-  );
+/**
+ * Цвет ячейки «Дней в работе» — комбинация приоритета и срока:
+ *   • низкий                  → серый, без иконки (заглушаем сигнал)
+ *   • >30 дней                → красный + ⚠️ (критично всегда)
+ *   • высокий + >14 дней      → красный + ⚠️ (эскалация для важных)
+ *   • средний/без приоритета  + >14 дней → amber + ⚠️
+ *   • остальное               → дефолтный muted-foreground, без иконки
+ *
+ * Пороги 14/30 как в /dashboard/divisions (там 45 — но HR попросил жёстче).
+ */
+function daysCellStyle(
+  days: number,
+  priority: VacancyRow['priority'],
+): { className: string; showIcon: boolean } {
+  if (priority === 'низкий') {
+    return { className: 'text-gray-400', showIcon: false };
+  }
+  if (days > 30) {
+    return { className: 'text-red-600', showIcon: true };
+  }
+  if (days > 14) {
+    const isHigh = priority === 'высокий';
+    return {
+      className: isHigh ? 'text-red-600' : 'text-amber-600',
+      showIcon: true,
+    };
+  }
+  return { className: 'text-muted-foreground', showIcon: false };
 }
 
 /**
@@ -182,16 +195,13 @@ export function VacanciesList({ role }: { role: Role }) {
               {rows.map((v) => (
                 <TableRow key={v.id}>
                   <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      <PriorityDot priority={v.priority} />
-                      <Link
-                        href={`/vacancies/${v.id}`}
-                        className="block max-w-50 truncate hover:underline"
-                        title={v.title}
-                      >
-                        {v.title}
-                      </Link>
-                    </div>
+                    <Link
+                      href={`/vacancies/${v.id}`}
+                      className="block max-w-50 truncate hover:underline"
+                      title={v.title}
+                    >
+                      {v.title}
+                    </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{v.subdivision ?? '—'}</TableCell>
                   <TableCell className="text-muted-foreground">{v.location ?? '—'}</TableCell>
@@ -213,10 +223,17 @@ export function VacanciesList({ role }: { role: Role }) {
                   <TableCell className="text-muted-foreground">
                     {new Date(`${v.opened_at}T00:00:00`).toLocaleDateString('ru-RU')}
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-right tabular-nums">
+                  <TableCell className="text-right tabular-nums">
                     {(() => {
                       const d = daysInWork(v.opened_at, v.closed_at);
-                      return d === null ? '—' : `${d} д.`;
+                      if (d === null) return <span className="text-muted-foreground">—</span>;
+                      const { className, showIcon } = daysCellStyle(d, v.priority);
+                      return (
+                        <span className={cn('inline-flex items-center justify-end gap-1', className)}>
+                          {showIcon && <AlertTriangle className="size-3.5" />}
+                          {d} д.
+                        </span>
+                      );
                     })()}
                   </TableCell>
                 </TableRow>
