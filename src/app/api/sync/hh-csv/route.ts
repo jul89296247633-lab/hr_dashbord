@@ -207,6 +207,10 @@ export async function POST(request: NextRequest) {
             ),
           // Звонки кандидатам — приходят в новом CSV vacancies (nullable).
           calls_count: parseNumber(getColFirst(row, 'Звонки, шт.', 'Звонки')),
+          // SPEC §5.6c: «Закрытая»=Да → источник истины для KPI «Закрыто
+          // вакансий». «Архивная» — более широкий статус (включая paused);
+          // его обрабатываем отдельно для EC-03 auto-close ниже.
+          is_closed: parseBoolYesNo(getCol(row, 'Закрытая')),
           source: 'hh_csv',
         };
 
