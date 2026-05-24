@@ -200,6 +200,14 @@ export async function POST() {
         statusCellRaw === 'приостановлена' || statusCellRaw === 'предзакрыта';
       const status = isClosed ? 'closed' : isPaused ? 'paused' : 'active';
 
+      // «Приоритет» из листа Data → vacancies.priority (CHECK ограничивает
+      // набор значений). Любое иное → NULL, в БД попадает «не задан».
+      const priorityRaw = (row.values['Приоритет'] ?? '').trim().toLowerCase();
+      const priorityMapped: 'высокий' | 'средний' | 'низкий' | null =
+        priorityRaw === 'высокий' ? 'высокий' :
+        priorityRaw === 'средний' ? 'средний' :
+        priorityRaw === 'низкий'  ? 'низкий'  : null;
+
       // «Менеджеры»: «Иванов И.И., Петров П.П.» → берём первого.
       const managersRaw = (row.values['Менеджеры'] ?? '').trim();
       const firstManager = managersRaw.split(/[,;]/)[0]?.trim() ?? '';
@@ -237,6 +245,7 @@ export async function POST() {
         opened_at: openedAt ?? undefined, // не перетираем NOT NULL пустым значением
         closed_at: isClosed ? closedDate : null,
         google_sheet_row: row.rowIndex,
+        priority: priorityMapped,
       };
 
       // Upsert по hh_vacancy_id (если есть) — иначе по (title, manager_id, opened_at).
