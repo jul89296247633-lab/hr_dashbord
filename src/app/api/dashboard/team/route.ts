@@ -76,8 +76,8 @@ export async function GET(request: NextRequest) {
     const month = monthWindow ?? currentMonthRange();
 
     // Параллельно: планы, активности за период, активные вакансии (без даты),
-    // закрытые за текущий месяц (по vacancies.closed_at).
-    const [plansRes, activitiesRes, vacanciesRes, closedRes] = await Promise.all([
+    // закрытые за текущий месяц (по vacancies.closed_at), snapshots для звонков.
+    const [plansRes, activitiesRes, vacanciesRes, closedRes, callsRes] = await Promise.all([
       db
         .from('manager_plans')
         .select('manager_id, calls_per_day, interviews_per_day, hires_per_month, effective_from, created_at')
@@ -111,12 +111,21 @@ export async function GET(request: NextRequest) {
         .in('manager_id', managerIds)
         .gte('closed_at', month.from)
         .lte('closed_at', month.to),
+      // KPI «Звонки» — тот же источник что и воронка отдела
+      // (vacancy_snapshots.calls_count, последний snapshot per vacancy).
+      // daily_activities.mango/hh_calls_count больше не используется — она
+      // заполнялась manager'ом вручную и почти всегда пустая.
+      db
+        .from('vacancy_snapshots')
+        .select('vacancy_id, calls_count, snapshot_at, vacancy:vacancies!vacancy_snapshots_vacancy_id_fkey(manager_id)')
+        .order('snapshot_at', { ascending: false }),
     ]);
 
     if (plansRes.error) throw new ApiError(500, 'DB_ERROR', plansRes.error.message);
     if (activitiesRes.error) throw new ApiError(500, 'DB_ERROR', activitiesRes.error.message);
     if (vacanciesRes.error) throw new ApiError(500, 'DB_ERROR', vacanciesRes.error.message);
     if (closedRes.error) throw new ApiError(500, 'DB_ERROR', closedRes.error.message);
+    if (callsRes.error) throw new ApiError(500, 'DB_ERROR', callsRes.error.message);
 
     // Активный план на менеджера: первый в порядке effective_from DESC, created_at DESC.
     const planByManager = new Map<string, { calls_per_day: number; interviews_per_day: number; hires_per_month: number }>();
@@ -130,16 +139,30 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Факты звонков/собеседований по менеджеру.
-    const callsByManager = new Map<string, number>();
+    // Собеседования — по-прежнему из daily_activities (вводит менеджер вручную).
     const interviewsByManager = new Map<string, number>();
     for (const a of activitiesRes.data ?? []) {
-      const calls = (a.mango_calls_count ?? 0) + (a.hh_calls_count ?? 0);
-      callsByManager.set(a.manager_id, (callsByManager.get(a.manager_id) ?? 0) + calls);
       interviewsByManager.set(
         a.manager_id,
         (interviewsByManager.get(a.manager_id) ?? 0) + (a.interviews_count ?? 0),
       );
+    }
+
+    // Звонки — sum(calls_count) по latest snapshot per vacancy, group by manager.
+    // Совпадает с источником воронки (см. /api/dashboard/divisions). Перiod
+    // снапшота не фильтруется — берётся самый свежий, как и в воронке.
+    const callsByManager = new Map<string, number>();
+    const seenCallsVac = new Set<string>();
+    for (const s of (callsRes.data ?? []) as Array<{
+      vacancy_id: string;
+      calls_count: number | null;
+      vacancy: { manager_id: string | null } | null;
+    }>) {
+      if (seenCallsVac.has(s.vacancy_id)) continue;
+      seenCallsVac.add(s.vacancy_id);
+      const mid = s.vacancy?.manager_id;
+      if (!mid || !managerIds.includes(mid)) continue;
+      callsByManager.set(mid, (callsByManager.get(mid) ?? 0) + (s.calls_count ?? 0));
     }
 
     // Активные вакансии по менеджеру.
