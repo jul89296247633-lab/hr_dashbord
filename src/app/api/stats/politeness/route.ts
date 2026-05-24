@@ -52,10 +52,12 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
 
     // ── По менеджерам (источник истины для всего ответа) ─────────────────────
+    // Фильтруем строки уволенных (user_profiles.is_active=false) — их вклад в
+    // ИВ компании больше не учитываем (SPEC §5.3, статус «Активен» из HH).
     const { data: rows, error: rowsError } = await supabase
       .from('hh_manager_stats')
       .select(
-        'manager_id, stat_date, source_csv, politeness_index, hh_calls_count, responses_received, responses_viewed, responses_answered, resume_views_from_search, invitations_from_db, avg_response_hours, manager:user_profiles!hh_manager_stats_manager_id_fkey(id, full_name)',
+        'manager_id, stat_date, source_csv, politeness_index, hh_calls_count, responses_received, responses_viewed, responses_answered, resume_views_from_search, invitations_from_db, avg_response_hours, manager:user_profiles!hh_manager_stats_manager_id_fkey(id, full_name, is_active)',
       )
       .not('manager_id', 'is', null)
       .gte('stat_date', from)
@@ -76,6 +78,8 @@ export async function GET(request: NextRequest) {
 
     for (const r of rows ?? []) {
       if (!r.manager_id) continue;
+      // Только активные менеджеры — уволенные не идут в ИВ компании.
+      if (r.manager?.is_active === false) continue;
       const entry =
         byManager.get(r.manager_id) ??
         { full_name: r.manager?.full_name ?? '—', politenessHistory: [], latestPoliteness: null, latestCalls: null };

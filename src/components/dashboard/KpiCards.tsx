@@ -70,7 +70,7 @@ export function KpiCards({
       <KpiCard icon={Briefcase} label="Активных вакансий" metric={{ fact: activeVacancies }} />
       <KpiCard icon={Phone} label="Звонки" metric={calls} />
       <KpiCard icon={Users} label="Собеседования" metric={interviews} />
-      <KpiCard icon={UserCheck} label="Выведено" metric={hired} />
+      <KpiCard icon={UserCheck} label="Закрыто вакансий" metric={hired} />
       <KpiCard icon={GraduationCap} label="На стажировке" metric={{ fact: interns }} />
     </div>
   );

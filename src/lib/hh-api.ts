@@ -176,7 +176,7 @@ export async function runHhSync(db: AdminDb): Promise<HhSyncResult> {
       vacancy_id: v.id,
       responses_count: stats.counters?.responses ?? 0,
       views_count: stats.counters?.views ?? 0,
-      invitations_sent: stats.counters?.invitations ?? 0,
+      invitations_from_responses: stats.counters?.invitations ?? 0,
       source: 'hh_api',
     });
     updated += 1;

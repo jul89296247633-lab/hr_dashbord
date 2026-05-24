@@ -71,8 +71,16 @@ export function DashboardClient({ role }: { role: Role }) {
   }, [load]);
 
   const internsTotal = (divisions?.divisions ?? []).reduce((s, d) => s + d.interns, 0);
-  const sumFunnel = (key: 'responses' | 'contacts_opened' | 'invitations_sent') =>
-    (divisions?.divisions ?? []).reduce((s, d) => s + d.funnel[key], 0);
+  // Воронка отдела теперь полностью из vacancy_snapshots (SPEC §5.3):
+  // Отклики / Контакты (бесплатные приглашения) / Приглашения (платные из базы) / Звонки.
+  const sumFunnel = (
+    key:
+      | 'responses'
+      | 'contacts_opened'
+      | 'invitations_from_responses'
+      | 'invitations_from_db'
+      | 'calls',
+  ) => (divisions?.divisions ?? []).reduce((s, d) => s + d.funnel[key], 0);
 
   const politenessById: Record<string, number | null> = {};
   for (const m of politeness?.managers ?? []) politenessById[m.manager_id] = m.politeness_index;
@@ -121,12 +129,12 @@ export function DashboardClient({ role }: { role: Role }) {
             <TeamFunnel
               stages={[
                 { label: 'Отклики', count: sumFunnel('responses') },
-                { label: 'Контакты', count: sumFunnel('contacts_opened') },
-                { label: 'Приглашения', count: sumFunnel('invitations_sent') },
-                { label: 'Звонки', count: team.summary.calls.fact },
+                { label: 'Контакты', count: sumFunnel('invitations_from_responses') },
+                { label: 'Приглашения', count: sumFunnel('invitations_from_db') },
+                { label: 'Звонки', count: sumFunnel('calls') },
                 { label: 'Собеседования', count: team.summary.interviews.fact },
                 { label: 'Стажировка', count: internsTotal },
-                { label: 'Трудоустройство', count: team.summary.hired.fact },
+                { label: 'Закрыто вакансий', count: team.summary.hired.fact },
               ]}
             />
           )}

@@ -13,7 +13,7 @@ import type { FunnelStage, Period } from '@/types';
 
 /**
  * GET /api/vacancies/[id]/funnel
- * Воронка по вакансии: responses → contacts_opened → invitations_sent →
+ * Воронка по вакансии: responses → contacts_opened → invitations_from_responses →
  * calls → interviews → interns → hired. Конверсия = доля перехода в следующий этап.
  *
  * HH-этапы (responses/contacts/invitations) — из последнего vacancy_snapshots.
@@ -58,7 +58,7 @@ export async function GET(
     // Последний снимок HH-воронки.
     const { data: snapshot, error: snapshotError } = await supabase
       .from('vacancy_snapshots')
-      .select('responses_count, contacts_opened, invitations_sent, snapshot_at')
+      .select('responses_count, contacts_opened, invitations_from_responses, snapshot_at')
       .eq('vacancy_id', id)
       .order('snapshot_at', { ascending: false })
       .limit(1)
@@ -110,7 +110,7 @@ export async function GET(
     const counts: { stage: string; count: number }[] = [
       { stage: 'responses', count: snapshot?.responses_count ?? 0 },
       { stage: 'contacts_opened', count: snapshot?.contacts_opened ?? 0 },
-      { stage: 'invitations_sent', count: snapshot?.invitations_sent ?? 0 },
+      { stage: 'invitations_from_responses', count: snapshot?.invitations_from_responses ?? 0 },
       { stage: 'calls', count: calls },
       { stage: 'interviews', count: interviews },
       { stage: 'interns', count: internCount ?? 0 },

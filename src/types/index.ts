@@ -104,7 +104,7 @@ export interface VacancySnapshot {
   snapshot_at: string;
   responses_count: number;
   contacts_opened: number;
-  invitations_sent: number;
+  invitations_from_responses: number;
   views_count: number;
   source: 'hh_api' | 'manual';
   created_at: string;
@@ -114,7 +114,7 @@ export interface VacancySnapshot {
 export interface VacancyFunnel {
   responses: number;
   contacts_opened: number;
-  invitations_sent: number;
+  invitations_from_responses: number;
   views: number;
   hired: number;
 }

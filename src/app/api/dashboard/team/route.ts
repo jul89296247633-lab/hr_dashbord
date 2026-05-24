@@ -89,6 +89,9 @@ export async function GET(request: NextRequest) {
         .from('vacancies')
         .select('manager_id')
         .eq('status', 'active')
+        // Только вакансии, привязанные к листу «Data» Sheets (hh_vacancy_id !== NULL).
+        // CSV-«фантомы» (созданные вне Sheets) не считаются — см. SPEC §5.3.
+        .not('hh_vacancy_id', 'is', null)
         .in('manager_id', managerIds),
       db
         .from('vacancies')

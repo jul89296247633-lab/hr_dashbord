@@ -25,7 +25,7 @@ export function DivisionCards({ divisions }: { divisions: Division[] }) {
             </CardHeader>
             <CardContent className="text-muted-foreground grid gap-1 text-sm">
               <span>Активных вакансий: {d.active_vacancies}</span>
-              <span>Выведено за период: {d.hired_in_period}</span>
+              <span>Закрыто вакансий за период: {d.hired_in_period}</span>
               {d.interns > 0 && <span>На стажировке: {d.interns}</span>}
               {d.avg_days_to_close !== null && (
                 <span>Средний срок закрытия: {d.avg_days_to_close} дн.</span>

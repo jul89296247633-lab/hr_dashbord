@@ -43,7 +43,9 @@ const MAX_CSV_BYTES = 10 * 1024 * 1024;
 //   ├ "Показы"                            → vacancy_snapshots.views_count
 //   ├ "Просмотры"                         → справочно
 //   ├ "Отклики"                           → vacancy_snapshots.responses_count
-//   ├ "Приглашения из откликов"           → vacancy_snapshots.invitations_sent
+//   ├ "Приглашения из откликов, шт."      → vacancy_snapshots.invitations_from_responses
+//   ├ "Приглашения из базы резюме, шт." ⓟ → vacancy_snapshots.invitations_from_db (ПЛАТНО)
+//   ├ "Звонки, шт."                       → vacancy_snapshots.calls_count
 //   └ "Просмотры резюме из отклика"       → vacancy_snapshots.contacts_opened
 //                                           (SPEC: «контакты, открытые менеджером»)
 
@@ -108,9 +110,11 @@ export async function POST(request: NextRequest) {
 
     // ── type=vacancies → vacancy_snapshots + EC-03 (auto-close) ───────────────
     if (reportType === 'vacancies') {
-      // Карта вакансий по hh_vacancy_id (всех статусов — нужно знать, что у
-      // нас уже было). Если в CSV приходит hh_vacancy_id, которого нет — мы
-      // авто-создадим вакансию по данным CSV (title/location/status/manager).
+      // Карта наших вакансий по hh_vacancy_id. Если строка CSV пришла с
+      // hh_vacancy_id, которого у нас нет — НЕ создаём вакансию (источник
+      // истины «Data» Sheet), просто не пишем snapshot. Каждую такую строку
+      // считаем как «matched_by_hh_id_only» — пользователю видно, сколько
+      // вакансий HH знает помимо листа.
       const { data: ourVacancies } = await db
         .from('vacancies')
         .select('id, hh_vacancy_id, status')
@@ -119,27 +123,10 @@ export async function POST(request: NextRequest) {
         (ourVacancies ?? []).map((v) => [String(v.hh_vacancy_id), { id: v.id, status: v.status }]),
       );
 
-      // user_profiles для матчинга «Менеджеры» из CSV → manager_id.
-      // Используем нормализованное ФИО (lower, ё→е, схлопывание пробелов) +
-      // вариант «Фамилия Имя» (HH часто отдаёт ФИО с отчеством).
-      const { data: profiles } = await db
-        .from('user_profiles')
-        .select('id, full_name');
-      const profileByNormName = new Map(
-        (profiles ?? []).map((p) => [normalizeName(p.full_name), p.id]),
-      );
-      const profileByFirstTwo = new Map<string, string>();
-      for (const p of profiles ?? []) {
-        const k = firstTwoWords(normalizeName(p.full_name));
-        // Только первое попадание — однофамильцы с одинаковым именем
-        // не сматчатся однозначно (оставляем undefined для них).
-        if (!profileByFirstTwo.has(k)) profileByFirstTwo.set(k, p.id);
-      }
-
       let matched = 0;
+      let snapshotsWritten = 0;
       let closed = 0;
-      let createdVacancies = 0;
-      let createdUsers = 0;
+      let matchedNoVacancy = 0;
       const skipped: string[] = [];
 
       // Границы дня для DELETE-перед-INSERT (см. ниже).
@@ -148,65 +135,17 @@ export async function POST(request: NextRequest) {
 
       for (const row of rows) {
         const hhId = getCol(row, 'id вакансии');
-        if (!hhId) continue;
-        let ours = vacancyByHhId.get(hhId);
-
-        // Авто-создание вакансии, если её ещё нет в БД.
-        // Источник данных — сам CSV (title / location / manager / status).
+        if (!hhId) {
+          skipped.push('(пустой id)');
+          continue;
+        }
+        matched += 1;
+        const ours = vacancyByHhId.get(hhId);
         if (!ours) {
-          const title = getColFirst(row, 'Название вакансии', 'Название').trim();
-          const location = getColFirst(row, 'Населённый пункт', 'Населенный пункт', 'Город').trim() || null;
-          const managersRaw = getCol(row, 'Менеджеры');
-          const firstManager = (managersRaw.split(/[,;]/)[0] ?? '').trim();
-          const isClosed =
-            parseBoolYesNo(getCol(row, 'Архивная')) ||
-            parseBoolYesNo(getCol(row, 'Закрытая'));
-          const closedAt = parseRuDate(getCol(row, 'Фактическая дата архивации'));
-          const openedAt = parseRuDate(getCol(row, 'Дата создания')) ?? statDate;
-
-          if (title.length < 2 || !firstManager) {
-            skipped.push(hhId);
-            continue;
-          }
-
-          // Матчинг менеджера: exact normalize → «Фамилия Имя» → авто-создать.
-          const norm = normalizeName(firstManager);
-          let managerId =
-            profileByNormName.get(norm) ?? profileByFirstTwo.get(firstTwoWords(norm)) ?? null;
-          if (!managerId) {
-            const result = await provisionManager(db, firstManager);
-            if (result.userProfileId) {
-              managerId = result.userProfileId;
-              if (result.created) createdUsers += 1;
-              profileByNormName.set(norm, managerId);
-              profileByFirstTwo.set(firstTwoWords(norm), managerId);
-            }
-          }
-          if (!managerId) {
-            skipped.push(hhId);
-            continue;
-          }
-
-          const { data: inserted, error: insertErr } = await db
-            .from('vacancies')
-            .insert({
-              hh_vacancy_id: hhId,
-              title,
-              location,
-              manager_id: managerId,
-              status: isClosed ? 'closed' : 'active',
-              opened_at: openedAt,
-              closed_at: isClosed ? (closedAt ?? statDate) : null,
-            })
-            .select('id, status')
-            .single();
-          if (insertErr || !inserted) {
-            skipped.push(hhId);
-            continue;
-          }
-          ours = { id: inserted.id, status: inserted.status };
-          vacancyByHhId.set(hhId, ours);
-          createdVacancies += 1;
+          // Знаем hh_vacancy_id, но вакансии нет в нашем листе — это вакансия
+          // не из листа «Data». Пропускаем snapshot, но не считаем как ошибку.
+          matchedNoVacancy += 1;
+          continue;
         }
 
         // Идемпотентность: одна запись snapshot за день на вакансию.
@@ -230,13 +169,21 @@ export async function POST(request: NextRequest) {
             parseNumber(
               getColFirst(row, 'Просмотры резюме из отклика, шт.', 'Просмотры резюме из отклика'),
             ) ?? 0,
-          invitations_sent:
+          // Бесплатные приглашения (отклик пришёл сам).
+          invitations_from_responses:
             parseNumber(
               getColFirst(row, 'Приглашения из откликов, шт.', 'Приглашения из откликов'),
             ) ?? 0,
+          // ⓟ Платные приглашения по контактам из базы HH (nullable; старые CSV → NULL).
+          invitations_from_db:
+            parseNumber(
+              getColFirst(row, 'Приглашения из базы резюме, шт.', 'Приглашения из базы резюме'),
+            ),
+          // Звонки кандидатам — приходят в новом CSV vacancies (nullable).
+          calls_count: parseNumber(getColFirst(row, 'Звонки, шт.', 'Звонки')),
           source: 'hh_csv',
         });
-        matched += 1;
+        snapshotsWritten += 1;
 
         // EC-03: если HH пометил вакансию архивной — закрываем у себя.
         // Используем «Фактическую дату архивации» если задана, иначе stat_date.
@@ -257,13 +204,15 @@ export async function POST(request: NextRequest) {
           stat_date: statDate,
           rows_parsed: rows.length,
           rows_matched: matched,
+          rows_snapshots_written: snapshotsWritten,
           rows_closed: closed,
-          rows_created_vacancies: createdVacancies,
-          rows_created_users: createdUsers,
+          // hh_vacancy_id найден в CSV, но соответствующей вакансии в БД нет
+          // (CSV знает больше, чем «Data» Sheet). Считаем как matched, но
+          // snapshot не пишется — нет vacancy_id для FK.
+          rows_matched_no_vacancy: matchedNoVacancy,
           rows_skipped: skipped.length,
           skipped_hh_ids: skipped.slice(0, 50),
-          skip_reason:
-            'нет «Название вакансии»/«Менеджеры» в строке CSV (создать вакансию не из чего)',
+          skip_reason: 'строка CSV без значения «id вакансии»',
         },
       });
     }

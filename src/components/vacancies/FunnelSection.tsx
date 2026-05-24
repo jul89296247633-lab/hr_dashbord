@@ -16,11 +16,11 @@ type FunnelPeriod = 'today' | 'week' | 'month' | 'all';
 const STAGE_LABEL: Record<string, string> = {
   responses: 'Отклики',
   contacts_opened: 'Контакты',
-  invitations_sent: 'Приглашения',
+  invitations_from_responses: 'Приглашения',
   calls: 'Звонки',
   interviews: 'Собеседования',
   interns: 'Стажировка',
-  hired: 'Выведено',
+  hired: 'Закрыто вакансий',
 };
 
 /** Промежуточные этапы выделяем amber-tint — визуально отличаем от

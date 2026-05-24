@@ -38,7 +38,7 @@ KPI за неделю:
 - Звонки: ${d.callsFact} / ${d.callsPlan} (${d.callsPct}%)
 - Звонки предыдущей недели: ${d.prevCallsPct ?? 'нет данных'}%
 - Собеседования: ${d.interviewsFact} / ${d.interviewsPlan} (${d.interviewsPct}%)
-- Выведено: ${d.hiresFact} / ${d.hiresPlan}
+- Закрыто вакансий: ${d.hiresFact} / ${d.hiresPlan}
 - Индекс вежливости: ${d.politenessIndex ?? 'нет данных'}
 - Дней без звонков: ${d.zeroCallsDays}
 

@@ -16,7 +16,9 @@ const NO_LOCATION = 'Не указан';
 interface FunnelMini {
   responses: number;
   contacts_opened: number;
-  invitations_sent: number;
+  invitations_from_responses: number;
+  invitations_from_db: number;
+  calls: number;
   hired: number;
   interns: number;
 }
@@ -71,18 +73,31 @@ export async function GET(request: NextRequest) {
     // Последний snapshot на каждую вакансию.
     const { data: snapshots, error: snapError } = await supabase
       .from('vacancy_snapshots')
-      .select('vacancy_id, responses_count, contacts_opened, invitations_sent, snapshot_at')
+      .select(
+        'vacancy_id, responses_count, contacts_opened, invitations_from_responses, invitations_from_db, calls_count, snapshot_at',
+      )
       .in('vacancy_id', vacancyIds)
       .order('snapshot_at', { ascending: false });
     if (snapError) throw new ApiError(500, 'DB_ERROR', snapError.message);
 
-    const snapshotByVacancy = new Map<string, { responses: number; contacts: number; invitations: number }>();
+    const snapshotByVacancy = new Map<
+      string,
+      {
+        responses: number;
+        contacts: number;
+        invitations_from_responses: number;
+        invitations_from_db: number;
+        calls: number;
+      }
+    >();
     for (const s of snapshots ?? []) {
       if (!snapshotByVacancy.has(s.vacancy_id)) {
         snapshotByVacancy.set(s.vacancy_id, {
-          responses: s.responses_count,
-          contacts: s.contacts_opened,
-          invitations: s.invitations_sent,
+          responses: s.responses_count ?? 0,
+          contacts: s.contacts_opened ?? 0,
+          invitations_from_responses: s.invitations_from_responses ?? 0,
+          invitations_from_db: s.invitations_from_db ?? 0,
+          calls: s.calls_count ?? 0,
         });
       }
     }
@@ -127,19 +142,31 @@ export async function GET(request: NextRequest) {
           ? Math.round(closeDays.reduce((s, d) => s + d, 0) / closeDays.length)
           : null;
 
-      const funnel: FunnelMini = { responses: 0, contacts_opened: 0, invitations_sent: 0, hired: 0, interns: 0 };
+      const funnel: FunnelMini = {
+        responses: 0,
+        contacts_opened: 0,
+        invitations_from_responses: 0,
+        invitations_from_db: 0,
+        calls: 0,
+        hired: 0,
+        interns: 0,
+      };
       const vacancyDetails = list.map((v) => {
         const snap = snapshotByVacancy.get(v.id);
         const mini: FunnelMini = {
           responses: snap?.responses ?? 0,
           contacts_opened: snap?.contacts ?? 0,
-          invitations_sent: snap?.invitations ?? 0,
+          invitations_from_responses: snap?.invitations_from_responses ?? 0,
+          invitations_from_db: snap?.invitations_from_db ?? 0,
+          calls: snap?.calls ?? 0,
           hired: hiredByVacancy.get(v.id) ?? 0,
           interns: internsByVacancy.get(v.id) ?? 0,
         };
         funnel.responses += mini.responses;
         funnel.contacts_opened += mini.contacts_opened;
-        funnel.invitations_sent += mini.invitations_sent;
+        funnel.invitations_from_responses += mini.invitations_from_responses;
+        funnel.invitations_from_db += mini.invitations_from_db;
+        funnel.calls += mini.calls;
         funnel.hired += mini.hired;
         funnel.interns += mini.interns;
 

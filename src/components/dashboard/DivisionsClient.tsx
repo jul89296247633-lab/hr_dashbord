@@ -40,7 +40,9 @@ const VACANCY_STATUS: Record<string, string> = {
 interface FunnelMini {
   responses: number;
   contacts_opened: number;
-  invitations_sent: number;
+  invitations_from_responses: number;
+  invitations_from_db: number;
+  calls: number;
   hired: number;
   interns: number;
 }
@@ -181,7 +183,7 @@ function DivisionRow({ division: d }: { division: Division }) {
         <div className="text-muted-foreground mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
           <span>Отклики: {d.funnel.responses}</span>
           <span>Контакты: {d.funnel.contacts_opened}</span>
-          <span>Приглашения: {d.funnel.invitations_sent}</span>
+          <span>Приглашения: {d.funnel.invitations_from_responses}</span>
           <span>Стажировка: {d.funnel.interns}</span>
           <span>Трудоустройство: {d.funnel.hired}</span>
         </div>
@@ -238,7 +240,7 @@ function DivisionRow({ division: d }: { division: Division }) {
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs">
                     R:{v.funnel_mini.responses} → C:{v.funnel_mini.contacts_opened} → I:
-                    {v.funnel_mini.invitations_sent} → Найм:{v.funnel_mini.hired}
+                    {v.funnel_mini.invitations_from_responses} → Найм:{v.funnel_mini.hired}
                   </TableCell>
                 </TableRow>
               ))}

@@ -28,7 +28,9 @@ export interface TeamResponse {
 export interface DivisionFunnel {
   responses: number;
   contacts_opened: number;
-  invitations_sent: number;
+  invitations_from_responses: number;
+  invitations_from_db: number;
+  calls: number;
   hired: number;
   interns: number;
 }

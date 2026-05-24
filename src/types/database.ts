@@ -148,7 +148,9 @@ export type Database = {
           snapshot_at: string;
           responses_count: number;
           contacts_opened: number;
-          invitations_sent: number;
+          invitations_from_responses: number;
+          invitations_from_db: number | null;
+          calls_count: number | null;
           views_count: number;
           source: string;
           created_at: string;
@@ -159,7 +161,9 @@ export type Database = {
           snapshot_at?: string;
           responses_count?: number;
           contacts_opened?: number;
-          invitations_sent?: number;
+          invitations_from_responses?: number;
+          invitations_from_db?: number | null;
+          calls_count?: number | null;
           views_count?: number;
           source?: string;
           created_at?: string;
@@ -170,7 +174,9 @@ export type Database = {
           snapshot_at?: string;
           responses_count?: number;
           contacts_opened?: number;
-          invitations_sent?: number;
+          invitations_from_responses?: number;
+          invitations_from_db?: number | null;
+          calls_count?: number | null;
           views_count?: number;
           source?: string;
           created_at?: string;

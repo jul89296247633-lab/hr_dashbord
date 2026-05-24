@@ -83,12 +83,13 @@ export async function GET(request: NextRequest) {
       .order('activity_date', { ascending: true });
     if (activitiesError) throw new ApiError(500, 'DB_ERROR', activitiesError.message);
 
-    // Активные вакансии.
+    // Активные вакансии (только из листа «Data» — hh_vacancy_id !== NULL).
     const { count: activeVacancies, error: vacError } = await supabase
       .from('vacancies')
       .select('id', { count: 'exact', head: true })
       .eq('manager_id', targetManagerId)
-      .eq('status', 'active');
+      .eq('status', 'active')
+      .not('hh_vacancy_id', 'is', null);
     if (vacError) throw new ApiError(500, 'DB_ERROR', vacError.message);
 
     // «Выведено» — всегда за полный текущий месяц через vacancies.closed_at,

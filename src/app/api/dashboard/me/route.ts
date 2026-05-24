@@ -61,7 +61,9 @@ export async function GET(request: NextRequest) {
       .from('vacancies')
       .select('id', { count: 'exact', head: true })
       .eq('manager_id', user.id)
-      .eq('status', 'active');
+      .eq('status', 'active')
+      // Только вакансии из листа «Data» (hh_vacancy_id !== NULL).
+      .not('hh_vacancy_id', 'is', null);
     if (vacError) throw new ApiError(500, 'DB_ERROR', vacError.message);
 
     // «Выведено» — всегда за полный текущий месяц через vacancies.closed_at,

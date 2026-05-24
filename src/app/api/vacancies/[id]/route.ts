@@ -74,7 +74,7 @@ export async function GET(
     const funnel: VacancyFunnel = {
       responses: snapshot?.responses_count ?? 0,
       contacts_opened: snapshot?.contacts_opened ?? 0,
-      invitations_sent: snapshot?.invitations_sent ?? 0,
+      invitations_from_responses: snapshot?.invitations_from_responses ?? 0,
       views: snapshot?.views_count ?? 0,
       hired: hiredCount ?? 0,
     };

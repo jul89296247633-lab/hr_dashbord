@@ -234,7 +234,7 @@ async function buildRecommendationContext(
 
   const { data: snapshot } = await supabase
     .from('vacancy_snapshots')
-    .select('responses_count, contacts_opened, invitations_sent')
+    .select('responses_count, contacts_opened, invitations_from_responses')
     .eq('vacancy_id', input.vacancy_id)
     .order('snapshot_at', { ascending: false })
     .limit(1)
@@ -258,7 +258,7 @@ async function buildRecommendationContext(
       title: vacancy.title,
       responses: snapshot?.responses_count ?? 0,
       contactsOpened: snapshot?.contacts_opened ?? 0,
-      invitationsSent: snapshot?.invitations_sent ?? 0,
+      invitationsSent: snapshot?.invitations_from_responses ?? 0,
       calls,
       daysOpen,
     }),

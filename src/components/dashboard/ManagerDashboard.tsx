@@ -175,7 +175,7 @@ export function ManagerDashboard({ role, selfId }: { role: Role; selfId: string 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard icon={Phone} label="Звонки" metric={data.kpi.calls} />
             <KpiCard icon={Users} label="Собеседования" metric={data.kpi.interviews} />
-            <KpiCard icon={UserCheck} label="Выведено" metric={data.kpi.hires} />
+            <KpiCard icon={UserCheck} label="Закрыто вакансий" metric={data.kpi.hires} />
             <ProbationCard count={data.probation_count} />
           </div>
 
@@ -191,7 +191,7 @@ export function ManagerDashboard({ role, selfId }: { role: Role; selfId: string 
                       <TableHead>Дата</TableHead>
                       <TableHead>Звонки</TableHead>
                       <TableHead>Собеседования</TableHead>
-                      <TableHead>Выведено</TableHead>
+                      <TableHead>Закрыто вакансий</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

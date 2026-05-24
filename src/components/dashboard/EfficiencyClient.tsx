@@ -226,7 +226,7 @@ export function EfficiencyClient() {
                   <TableHead>Менеджер</TableHead>
                   <TableHead>Звонки</TableHead>
                   <TableHead>Собеседования</TableHead>
-                  <TableHead>Выведено</TableHead>
+                  <TableHead>Закрыто вакансий</TableHead>
                   <TableHead>ИВ</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead className="text-right">Бонус за месяц</TableHead>
