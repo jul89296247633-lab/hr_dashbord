@@ -95,23 +95,19 @@ export async function GET(request: NextRequest) {
         .from('vacancies')
         .select('manager_id')
         .eq('status', 'active')
-        // Только вакансии, реально присутствующие в листе «Data» Sheets
-        // (google_sheet_row IS NOT NULL). CSV-«фантомы» из откатанного
-        // hh-csv auto-create (commit 4c64f1c → rollback 2243fbe) имеют
-        // hh_vacancy_id, но НЕ имеют google_sheet_row — их исключаем
-        // из всех KPI (SPEC §5.3).
-        .not('google_sheet_row', 'is', null)
+        // Только вакансии, привязанные к листу «Data» Sheets (hh_vacancy_id !== NULL).
+        // CSV-«фантомы» (созданные вне Sheets) не считаются — см. SPEC §5.3.
+        .not('hh_vacancy_id', 'is', null)
         .in('manager_id', managerIds),
       // «Закрыто вакансий» — источник = vacancies.closed_at (Sheets). Snapshot'ы
       // CSV приходят с stat_date загрузки, а не с фактической датой закрытия,
       // поэтому для фильтра «по месяцу закрытия» они не подходят. Поле
       // is_closed в snapshots остаётся для аудита / возможного дашборда «когда
-      // HH об этом узнал». Фильтр google_sheet_row — тот же, что и для active.
+      // HH об этом узнал».
       db
         .from('vacancies')
         .select('manager_id')
         .eq('status', 'closed')
-        .not('google_sheet_row', 'is', null)
         .in('manager_id', managerIds)
         .gte('closed_at', month.from)
         .lte('closed_at', month.to),
