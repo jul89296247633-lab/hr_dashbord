@@ -61,11 +61,16 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient();
 
+    // Только вакансии, реально присутствующие в листе «Data» (google_sheet_row IS NOT NULL).
+    // CSV-«фантомы» (hh_vacancy_id есть, google_sheet_row NULL — остатки откатанного
+    // hh-csv auto-create, commit 4c64f1c → rollback 2243fbe) исключаются из всех
+    // подразделенческих агрегатов (active / closed_in_period / cities / funnel).
     let vacancyQuery = supabase
       .from('vacancies')
       .select(
         'id, title, subdivision, location, status, days_to_close, opened_at, closed_at, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
-      );
+      )
+      .not('google_sheet_row', 'is', null);
     if (subdivisionFilter) vacancyQuery = vacancyQuery.eq('subdivision', subdivisionFilter);
     const { data: vacancies, error: vacError } = await vacancyQuery;
     if (vacError) throw new ApiError(500, 'DB_ERROR', vacError.message);

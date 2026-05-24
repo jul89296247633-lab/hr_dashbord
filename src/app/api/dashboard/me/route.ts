@@ -66,17 +66,20 @@ export async function GET(request: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .eq('manager_id', user.id)
       .eq('status', 'active')
-      // Только вакансии из листа «Data» (hh_vacancy_id !== NULL).
-      .not('hh_vacancy_id', 'is', null);
+      // Только вакансии из листа «Data» (google_sheet_row IS NOT NULL).
+      // CSV-«фантомы» (hh_vacancy_id есть, google_sheet_row NULL) исключаем.
+      .not('google_sheet_row', 'is', null);
     if (vacError) throw new ApiError(500, 'DB_ERROR', vacError.message);
 
     // «Закрыто вакансий» — vacancies WHERE status='closed' AND closed_at ∈ month.
+    // Фильтр google_sheet_row — тот же, что и для active (исключаем фантомов).
     const month = monthWindow ?? currentMonthRange();
     const { data: closedThisMonth, error: closedError } = await supabase
       .from('vacancies')
       .select('id, closed_at')
       .eq('manager_id', user.id)
       .eq('status', 'closed')
+      .not('google_sheet_row', 'is', null)
       .gte('closed_at', month.from)
       .lte('closed_at', month.to);
     if (closedError) throw new ApiError(500, 'DB_ERROR', closedError.message);
