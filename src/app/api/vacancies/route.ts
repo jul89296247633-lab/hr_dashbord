@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('vacancies')
       .select(
-        'id, hh_vacancy_id, title, department, subdivision, location, manager_id, status, opened_at, closed_at, days_to_close, google_sheet_row, created_at, updated_at, manager:user_profiles!vacancies_manager_id_fkey(id, full_name, is_active)',
+        'id, hh_vacancy_id, title, department, subdivision, location, manager_id, status, opened_at, closed_at, days_to_close, google_sheet_row, priority, created_at, updated_at, manager:user_profiles!vacancies_manager_id_fkey(id, full_name, is_active)',
         { count: 'exact' },
       );
 
@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
             closed_at: v.closed_at,
             days_to_close: v.days_to_close,
             google_sheet_row: v.google_sheet_row,
+            priority: v.priority,
             created_at: v.created_at,
             updated_at: v.updated_at,
           }))

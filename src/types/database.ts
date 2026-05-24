@@ -94,6 +94,7 @@ export type Database = {
           closed_at: string | null;
           days_to_close: number | null;
           google_sheet_row: number | null;
+          priority: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -111,6 +112,7 @@ export type Database = {
           opened_at?: string;
           closed_at?: string | null;
           google_sheet_row?: number | null;
+          priority?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -128,6 +130,7 @@ export type Database = {
           opened_at?: string;
           closed_at?: string | null;
           google_sheet_row?: number | null;
+          priority?: string | null;
           created_at?: string;
           updated_at?: string;
         };

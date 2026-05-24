@@ -89,9 +89,13 @@ export interface Vacancy {
   closed_at: string | null;
   days_to_close: number | null;
   google_sheet_row: number | null;
+  priority: VacancyPriority | null;
   created_at: string;
   updated_at: string;
 }
+
+/** Приоритет вакансии (CHECK в БД — vacancies.priority). */
+export type VacancyPriority = 'высокий' | 'средний' | 'низкий';
 
 /** Вакансия из списка с вложенным менеджером (для head/admin). */
 export interface VacancyListItem extends Vacancy {

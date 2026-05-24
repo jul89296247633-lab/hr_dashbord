@@ -48,7 +48,25 @@ interface VacancyRow {
   status: string;
   opened_at: string;
   closed_at: string | null;
+  priority: 'высокий' | 'средний' | 'низкий' | null;
   manager?: { id: string; full_name: string; is_active?: boolean } | null;
+}
+
+const PRIORITY_DOT: Record<string, { color: string; label: string }> = {
+  'высокий': { color: 'bg-red-500',    label: 'Высокий приоритет' },
+  'средний': { color: 'bg-amber-500',  label: 'Средний приоритет' },
+  'низкий':  { color: 'bg-gray-400',   label: 'Низкий приоритет' },
+};
+
+function PriorityDot({ priority }: { priority: VacancyRow['priority'] }) {
+  const cfg = priority ? PRIORITY_DOT[priority] : null;
+  return (
+    <span
+      className={cn('inline-block size-2 shrink-0 rounded-full', cfg?.color ?? 'bg-muted')}
+      title={cfg?.label ?? 'Приоритет не задан'}
+      aria-label={cfg?.label ?? 'Приоритет не задан'}
+    />
+  );
 }
 
 /**
@@ -164,9 +182,16 @@ export function VacanciesList({ role }: { role: Role }) {
               {rows.map((v) => (
                 <TableRow key={v.id}>
                   <TableCell className="font-medium">
-                    <Link href={`/vacancies/${v.id}`} className="hover:underline">
-                      {v.title}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <PriorityDot priority={v.priority} />
+                      <Link
+                        href={`/vacancies/${v.id}`}
+                        className="block max-w-50 truncate hover:underline"
+                        title={v.title}
+                      >
+                        {v.title}
+                      </Link>
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{v.subdivision ?? '—'}</TableCell>
                   <TableCell className="text-muted-foreground">{v.location ?? '—'}</TableCell>
