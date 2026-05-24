@@ -14,8 +14,9 @@ import { bonusesQuerySchema } from '@/lib/validations';
  * GET /api/bonuses — список бонусов за период (по умолчанию текущий месяц).
  *
  * SPEC §5.3 / §5.6: бонус считается на лету как тариф из bonus_rates
- * (fuzzy-match с hired_employees.position_name по pg_trgm threshold 0.6).
- * Источник истины — RPC compute_manager_bonuses (SECURITY DEFINER).
+ * (fuzzy-match с vacancies.title по pg_trgm threshold 0.4).
+ * Источник истины — RPC compute_manager_bonuses (SECURITY DEFINER), берёт
+ * vacancies WHERE status='closed' AND closed_at ∈ period.
  *
  * RLS-инвариант:
  *  - manager → форсим p_manager_id = auth.uid() (видит только свои);
@@ -52,14 +53,12 @@ export async function GET(request: NextRequest) {
     if (error) throw new ApiError(500, 'DB_ERROR', error.message);
 
     type RpcRow = {
-      hired_id: string;
+      vacancy_id: string;
       manager_id: string | null;
       manager_name: string | null;
       manager_is_active: boolean | null;
-      vacancy_id: string | null;
       vacancy_title: string | null;
-      position_name: string;
-      hired_date: string;
+      closed_at: string | null;
       rate_id: string | null;
       rate_position_name: string | null;
       amount_kopecks: number | null;
@@ -68,13 +67,12 @@ export async function GET(request: NextRequest) {
 
     const rows = (data as RpcRow[] | null) ?? [];
     const list = rows.map((r) => ({
-      hired_id: r.hired_id,
+      vacancy_id: r.vacancy_id,
       manager: r.manager_id
         ? { id: r.manager_id, full_name: r.manager_name ?? '—', is_active: r.manager_is_active ?? true }
         : null,
-      vacancy: r.vacancy_id ? { id: r.vacancy_id, title: r.vacancy_title ?? '—' } : null,
-      position_name: r.position_name,
-      hired_date: r.hired_date,
+      vacancy: { id: r.vacancy_id, title: r.vacancy_title ?? '—' },
+      closed_at: r.closed_at,
       rate_position_name: r.rate_position_name,
       amount_kopecks: r.amount_kopecks,
       amount_display: r.amount_kopecks != null ? formatKopecks(r.amount_kopecks) : null,

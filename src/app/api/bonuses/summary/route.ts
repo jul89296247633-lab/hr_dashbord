@@ -15,8 +15,8 @@ import { bonusesSummaryPeriodSchema } from '@/lib/validations';
  *
  * Источник — RPC compute_manager_bonuses (SPEC §5.3 / §5.6):
  * бонус считается на лету как тариф из bonus_rates, fuzzy-совпавший
- * с hired_employees.position_name. Статусов pending/paid в новой модели нет
- * (см. историю: до 20260523180000_bonus_rates).
+ * с vacancies.title (вакансии WHERE status='closed' AND closed_at ∈ period).
+ * Статусов pending/paid в новой модели нет.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     type RpcRow = {
       manager_id: string | null;
       manager_name: string | null;
-      hired_date: string;
+      closed_at: string | null;
       amount_kopecks: number | null;
     };
 
@@ -58,7 +58,9 @@ export async function GET(request: NextRequest) {
         { full_name: r.manager_name ?? '—', count: 0, total: 0, lastDate: null };
       entry.count += 1;
       entry.total += r.amount_kopecks ?? 0;
-      if (!entry.lastDate || r.hired_date > entry.lastDate) entry.lastDate = r.hired_date;
+      if (r.closed_at && (!entry.lastDate || r.closed_at > entry.lastDate)) {
+        entry.lastDate = r.closed_at;
+      }
       byManager.set(r.manager_id, entry);
     }
 

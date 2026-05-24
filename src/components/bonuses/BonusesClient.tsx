@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 
+import { cn } from '@/lib/utils';
 import type { Role } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,15 +27,18 @@ import { ManagerName } from '@/components/shared/ManagerName';
 import type { TeamResponse } from '@/components/dashboard/types';
 
 /**
- * SPEC §5.3 / §5.6: бонус = тариф из bonus_rates × hired_employees (status='hired').
- * Источник — RPC compute_manager_bonuses. По умолчанию показываем текущий месяц.
+ * SPEC §5.3 / §5.6: бонус = тариф из bonus_rates × vacancies (status='closed').
+ * Источник — RPC compute_manager_bonuses. По умолчанию текущий месяц.
+ *
+ * Таблица: строка на каждую закрытую вакансию, sub-total по менеджеру (bold),
+ * grand total внизу. Карточка «Начислено за месяц» — сумма матченных тарифов
+ * (RPC уже возвращает amount_kopecks = NULL для нематченных, в total не входят).
  */
 interface BonusRow {
-  hired_id: string;
+  vacancy_id: string;
   manager: { id: string; full_name: string; is_active?: boolean } | null;
-  vacancy: { id: string; title: string } | null;
-  position_name: string;
-  hired_date: string;
+  vacancy: { id: string; title: string };
+  closed_at: string | null;
   rate_position_name: string | null;
   amount_kopecks: number | null;
   amount_display: string | null;
@@ -44,6 +48,10 @@ interface BonusesResponse {
   total_amount_kopecks: number;
   total_amount_display: string;
   meta: { from: string; to: string; total: number };
+}
+
+function formatKopecks(k: number): string {
+  return `${(k / 100).toLocaleString('ru-RU')} ₽`;
 }
 
 export function BonusesClient({ role }: { role: Role }) {
@@ -56,7 +64,6 @@ export function BonusesClient({ role }: { role: Role }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Менеджеры для фильтра (head/admin).
   useEffect(() => {
     if (!canManage) return;
     fetch('/api/dashboard/team?period=month')
@@ -98,6 +105,27 @@ export function BonusesClient({ role }: { role: Role }) {
     void load();
   }, [load]);
 
+  // Группируем строки по manager_id (или 'no-manager' для безимённых).
+  // Стабильный порядок: сортируем группы по фамилии manager_name.
+  const groups = (() => {
+    const map = new Map<
+      string,
+      { manager: BonusRow['manager']; rows: BonusRow[]; subtotal: number }
+    >();
+    for (const r of rows) {
+      const key = r.manager?.id ?? 'no-manager';
+      const cur = map.get(key) ?? { manager: r.manager, rows: [], subtotal: 0 };
+      cur.rows.push(r);
+      cur.subtotal += r.amount_kopecks ?? 0;
+      map.set(key, cur);
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      (a.manager?.full_name ?? '').localeCompare(b.manager?.full_name ?? '', 'ru'),
+    );
+  })();
+
+  const grandTotalKopecks = groups.reduce((s, g) => s + g.subtotal, 0);
+
   return (
     <div className="grid gap-5">
       <div>
@@ -105,8 +133,7 @@ export function BonusesClient({ role }: { role: Role }) {
         <p className="text-muted-foreground mt-0.5 text-sm">{currentMonthHeader()}</p>
       </div>
 
-      {/* Сводная карточка: сумма начислений за текущий месяц.
-          total_amount_kopecks из API уже исключает строки без тарифа (NULL → 0). */}
+      {/* Сводная карточка: сумма матченных бонусов за месяц. */}
       <div className="grid grid-cols-1 sm:max-w-xs">
         <Card>
           <CardContent className="grid gap-1">
@@ -116,7 +143,6 @@ export function BonusesClient({ role }: { role: Role }) {
         </Card>
       </div>
 
-      {/* Фильтр: только менеджеры (head/admin). */}
       {canManage && managers.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <Select value={managerFilter} onValueChange={setManagerFilter}>
@@ -146,7 +172,7 @@ export function BonusesClient({ role }: { role: Role }) {
       {loading ? (
         <Skeleton className="h-64 w-full" />
       ) : rows.length === 0 ? (
-        <p className="text-muted-foreground text-sm">Бонусов за текущий месяц нет.</p>
+        <p className="text-muted-foreground text-sm">Закрытых вакансий за текущий месяц нет.</p>
       ) : (
         <Table>
           <TableHeader>
@@ -154,37 +180,78 @@ export function BonusesClient({ role }: { role: Role }) {
               <TableHead>Менеджер</TableHead>
               <TableHead>Вакансия</TableHead>
               <TableHead>Тариф</TableHead>
-              <TableHead className="text-right">Сумма</TableHead>
+              <TableHead className="text-right">Сумма бонуса</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((b) => (
-              <TableRow key={b.hired_id}>
-                <TableCell className="font-medium">
-                  <ManagerName name={b.manager?.full_name} isActive={b.manager?.is_active} />
-                </TableCell>
-                <TableCell>{b.vacancy?.title ?? '—'}</TableCell>
-                <TableCell>
-                  {b.rate_position_name ?? (
-                    <span
-                      className="text-muted-foreground italic"
-                      title="Не нашли соответствующий тариф в bonus_rates (fuzzy < 0.6)"
-                    >
-                      Тариф не задан
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
-                  {b.amount_display ?? (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-              </TableRow>
+            {groups.map((g) => (
+              <GroupBlock
+                key={g.manager?.id ?? 'no-manager'}
+                manager={g.manager}
+                rows={g.rows}
+                subtotal={g.subtotal}
+              />
             ))}
+            {/* Grand total */}
+            <TableRow className="bg-muted/60 font-bold">
+              <TableCell colSpan={3} className="text-right">
+                Итого
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatKopecks(grandTotalKopecks)}
+              </TableCell>
+            </TableRow>
           </TableBody>
         </Table>
       )}
     </div>
+  );
+}
+
+function GroupBlock({
+  manager,
+  rows,
+  subtotal,
+}: {
+  manager: BonusRow['manager'];
+  rows: BonusRow[];
+  subtotal: number;
+}) {
+  return (
+    <>
+      {rows.map((b, i) => (
+        <TableRow key={b.vacancy_id}>
+          <TableCell className={cn('font-medium', i > 0 && 'text-muted-foreground')}>
+            {i === 0 ? (
+              <ManagerName name={manager?.full_name} isActive={manager?.is_active} />
+            ) : (
+              <span className="text-transparent">·</span>
+            )}
+          </TableCell>
+          <TableCell>{b.vacancy.title}</TableCell>
+          <TableCell>
+            {b.rate_position_name ?? (
+              <span
+                className="text-muted-foreground italic"
+                title="Не нашли соответствующий тариф в bonus_rates (fuzzy < 0.4)"
+              >
+                Тариф не задан
+              </span>
+            )}
+          </TableCell>
+          <TableCell className="text-right tabular-nums">
+            {b.amount_display ?? <span className="text-muted-foreground">0 ₽</span>}
+          </TableCell>
+        </TableRow>
+      ))}
+      {/* Sub-total по менеджеру */}
+      <TableRow className="bg-muted/30 font-semibold">
+        <TableCell colSpan={3} className="text-right">
+          Итого по {manager?.full_name ?? '—'}
+        </TableCell>
+        <TableCell className="text-right tabular-nums">{formatKopecks(subtotal)}</TableCell>
+      </TableRow>
+    </>
   );
 }
 

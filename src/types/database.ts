@@ -847,14 +847,12 @@ export type Database = {
           p_threshold?: number;
         };
         Returns: {
-          hired_id: string;
+          vacancy_id: string;
           manager_id: string | null;
           manager_name: string | null;
           manager_is_active: boolean | null;
-          vacancy_id: string | null;
           vacancy_title: string | null;
-          position_name: string;
-          hired_date: string;
+          closed_at: string | null;
           rate_id: string | null;
           rate_position_name: string | null;
           amount_kopecks: number | null;
