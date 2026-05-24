@@ -2820,9 +2820,10 @@ export const AdminUserCreateSchema = z.object({
 
 **Назначение:** Таблица бонусов, начисленных менеджерам за закрытые вакансии
 в текущем месяце. Источник — RPC `compute_manager_bonuses` (см. §5.3 / §5.6):
-бонус = тариф из `bonus_rates`, fuzzy-совпавший с `hired_employees.position_name`
-по `pg_trgm` (threshold 0.6). Статусов «начислен/выплачен» нет — `hr_bonuses`
-не используется в новой модели.
+бонус = тариф из `bonus_rates`, fuzzy-совпавший с `vacancies.title` по `pg_trgm`
+(threshold 0.4). Берутся вакансии `status='closed' AND closed_at ∈ месяц AND
+google_sheet_row IS NOT NULL` (фантомы из CSV-импорта исключаются). Статусов
+«начислен/выплачен» нет — `hr_bonuses` не используется в новой модели.
 
 **Layout:** `(app)/layout` с sidebar
 **Доступ:** head/admin — все; manager — только свои (API форсит `p_manager_id = auth.uid()`).
@@ -3925,27 +3926,38 @@ async function syncBonusRates(rows: SheetRow[]) {
 **Расчёт бонусов на лету (RPC `compute_manager_bonuses`):**
 
 Источник для `/api/bonuses` и `/api/bonuses/summary`. Параметры:
-`p_from DATE`, `p_to DATE`, `p_manager_id UUID` (опц.), `p_threshold FLOAT = 0.6`.
+`p_from DATE`, `p_to DATE`, `p_manager_id UUID` (опц.), `p_threshold FLOAT = 0.4`.
+
+Источник переключён с `hired_employees` на `vacancies` (миграция
+`20260524130000_compute_manager_bonuses_from_vacancies`): EC-03 авто-закрытия
+из hh-csv в `hired_employees` не пишут, поэтому единый источник истины —
+`vacancies.closed_at`. Threshold снижен с 0.6 до 0.4 для русских названий с
+особенностями. Дополнительный фильтр `v.google_sheet_row IS NOT NULL`
+(миграция `20260524170000_compute_manager_bonuses_exclude_phantoms`)
+исключает CSV-фантомы (остатки откатанного hh-csv auto-create).
 
 ```sql
-SELECT he.id, v.manager_id, v.title AS vacancy_title, he.position_name,
-       he.hired_date, br.amount_kopecks, br.similarity_score
-FROM hired_employees he
-LEFT JOIN vacancies v ON v.id = he.vacancy_id
+SELECT v.id AS vacancy_id, v.manager_id, up.full_name AS manager_name,
+       up.is_active AS manager_is_active, v.title AS vacancy_title,
+       v.closed_at, br.id AS rate_id, br.position_name AS rate_position_name,
+       br.amount_kopecks, br.score AS similarity_score
+FROM vacancies v
+LEFT JOIN user_profiles up ON up.id = v.manager_id
 LEFT JOIN LATERAL (
   SELECT id, position_name, amount_kopecks,
-         similarity(position_name, he.position_name) AS score
+         similarity(position_name, v.title) AS score
   FROM bonus_rates
-  WHERE similarity(position_name, he.position_name) >= 0.6
+  WHERE similarity(position_name, v.title) >= $p_threshold
   ORDER BY score DESC LIMIT 1
 ) br ON TRUE
-WHERE he.status = 'hired'
-  AND he.hired_date BETWEEN $p_from AND $p_to
+WHERE v.status = 'closed'
+  AND v.closed_at IS NOT NULL
+  AND v.google_sheet_row IS NOT NULL
+  AND v.closed_at BETWEEN $p_from AND $p_to
   AND ($p_manager_id IS NULL OR v.manager_id = $p_manager_id);
 ```
 
-- `status = 'hired'` (стажёры — `status='probation'` — в бонусы не идут).
-- Если тариф не найден (нет в `bonus_rates` или similarity < 0.6) — строка
+- Если тариф не найден (нет в `bonus_rates` или similarity < 0.4) — строка
   возвращается с `amount_kopecks = NULL` (UI показывает «Тариф не задан»,
   и эта строка не попадает в `total_amount_kopecks`).
 - SECURITY DEFINER + GRANT EXECUTE TO authenticated; API форсит
