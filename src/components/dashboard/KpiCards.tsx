@@ -70,7 +70,12 @@ export function KpiCards({
       <KpiCard icon={Briefcase} label="Активных вакансий" metric={{ fact: activeVacancies }} />
       <KpiCard icon={Phone} label="Звонки" metric={calls} />
       <KpiCard icon={Users} label="Собеседования" metric={interviews} />
-      <KpiCard icon={UserCheck} label="Закрыто вакансий" metric={hired} />
+      {/* «Закрыто вакансий» показываем только факт за текущий месяц —
+          план из manager_plans (или дефолт 15) суммируется по всем менеджерам
+          и выходит цифра в районе 300, никакого общекомпанийного плана у нас
+          нет. Сравнение факт/план для конкретного менеджера остаётся на
+          /dashboard/manager + /dashboard/efficiency. */}
+      <KpiCard icon={UserCheck} label="Закрыто вакансий" metric={{ fact: hired.fact }} />
       <KpiCard icon={GraduationCap} label="На стажировке" metric={{ fact: interns }} />
     </div>
   );
