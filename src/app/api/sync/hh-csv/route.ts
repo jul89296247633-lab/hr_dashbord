@@ -148,11 +148,17 @@ export async function POST(request: NextRequest) {
         await db.from('vacancy_snapshots').insert({
           vacancy_id: ours.id,
           snapshot_at: dayStart,
-          views_count: parseNumber(getCol(row, 'Показы')) ?? 0,
-          responses_count: parseNumber(getCol(row, 'Отклики')) ?? 0,
+          views_count: parseNumber(getColFirst(row, 'Показы, шт.', 'Показы')) ?? 0,
+          responses_count: parseNumber(getColFirst(row, 'Отклики, шт.', 'Отклики')) ?? 0,
           // SPEC: «контакты, открытые менеджером» = просмотры резюме откликнувшихся.
-          contacts_opened: parseNumber(getCol(row, 'Просмотры резюме из отклика')) ?? 0,
-          invitations_sent: parseNumber(getCol(row, 'Приглашения из откликов')) ?? 0,
+          contacts_opened:
+            parseNumber(
+              getColFirst(row, 'Просмотры резюме из отклика, шт.', 'Просмотры резюме из отклика'),
+            ) ?? 0,
+          invitations_sent:
+            parseNumber(
+              getColFirst(row, 'Приглашения из откликов, шт.', 'Приглашения из откликов'),
+            ) ?? 0,
           source: 'hh_csv',
         });
         matched += 1;
@@ -283,15 +289,25 @@ export async function POST(request: NextRequest) {
           manager_name_hh: hhName,
           stat_date: statDate,
           politeness_index: parsePercent(getCol(row, 'Индекс вежливости')),
-          responses_received: parseNumber(getCol(row, 'Отклики')),
+          responses_received: parseNumber(
+            getColFirst(row, 'Отклики, шт.', 'Отклики'),
+          ),
           // Бесплатные просмотры (из входящих откликов).
-          responses_viewed: parseNumber(getCol(row, 'Просмотры резюме из отклика')),
-          responses_answered: parseNumber(getCol(row, 'Приглашений из откликов')),
+          responses_viewed: parseNumber(
+            getColFirst(row, 'Просмотры резюме из отклика, шт.', 'Просмотры резюме из отклика'),
+          ),
+          responses_answered: parseNumber(
+            getColFirst(row, 'Приглашений из откликов, шт.', 'Приглашений из откликов'),
+          ),
           // ⓟ Платные просмотры (менеджер искал в базе HH) — nullable, старые
           //   CSV без этой колонки → NULL.
-          resume_views_from_search: parseNumber(getCol(row, 'Просмотры резюме из поиска')),
+          resume_views_from_search: parseNumber(
+            getColFirst(row, 'Просмотры резюме из поиска, шт.', 'Просмотры резюме из поиска'),
+          ),
           // ⓟ Платные приглашения из базы резюме.
-          invitations_from_db: parseNumber(getCol(row, 'Приглашений из базы')),
+          invitations_from_db: parseNumber(
+            getColFirst(row, 'Приглашений из базы, шт.', 'Приглашений из базы'),
+          ),
           // avg_response_hours: новый отчёт HH этой колонки не отдаёт → NULL.
           avg_response_hours: null,
           source_csv: 'politeness_managers',
@@ -328,6 +344,17 @@ export async function POST(request: NextRequest) {
 function getCol(row: Record<string, string>, name: string): string {
   const key = Object.keys(row).find((k) => k.toLowerCase().includes(name.toLowerCase()));
   return key ? row[key] : '';
+}
+
+/** Перебирает алиасы заголовка и возвращает первое непустое значение.
+ *  Нужен потому, что HH-отчёты пишут заголовки то с «, шт.» в конце, то без —
+ *  и кратчайший вариант может случайно совпасть с другой колонкой (substring). */
+function getColFirst(row: Record<string, string>, ...names: string[]): string {
+  for (const n of names) {
+    const v = getCol(row, n);
+    if (v) return v;
+  }
+  return '';
 }
 
 /** YYYY-MM-DD + N дней → YYYY-MM-DD. */

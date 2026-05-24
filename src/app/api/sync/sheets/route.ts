@@ -87,10 +87,7 @@ export async function POST() {
       // Фильтр строк-заголовков и мусорных значений.
       // 'HR менеджеры' / 'Нг менеджеры' — попадали в таблицу как «менеджер»
       // когда лист начинался без заголовка или с дублирующей строкой.
-      if (isHeaderLikeManagerName(name)) {
-        console.log('DEBUG skip header-like manager row:', name);
-        continue;
-      }
+      if (isHeaderLikeManagerName(name)) continue;
       const emailFromSheet = pickEmail(row);
       let userProfileId =
         (emailFromSheet ? profileByEmail.get(emailFromSheet.toLowerCase()) : undefined) ??
@@ -120,7 +117,6 @@ export async function POST() {
             .maybeSingle();
           if (existing?.id) {
             userProfileId = existing.id;
-            console.log('DEBUG attach existing by email:', candidate, '→', userProfileId);
             break;
           }
         }
@@ -133,18 +129,12 @@ export async function POST() {
             email_confirm: true,
             user_metadata: { full_name: name, role: 'manager' },
           });
-          if (createErr) {
-            console.log(
-              'DEBUG createUser failed:', createErr.message,
-              'name:', name, 'email:', createEmail,
-            );
-          } else if (created?.user?.id) {
+          if (!createErr && created?.user?.id) {
             userProfileId = created.user.id;
             createdUsers += 1;
             // Прогрев кэшей, чтобы повторы в этой же sync-сессии находили его.
             profileByName.set(name.toLowerCase(), userProfileId);
             profileByEmail.set(createEmail, userProfileId);
-            console.log('DEBUG created user:', userProfileId, createEmail);
           }
         }
       }
@@ -194,7 +184,6 @@ export async function POST() {
     const profileByNormName = new Map(
       (profiles ?? []).map((p) => [normalizeFullName(p.full_name), p.id]),
     );
-    console.log('DEBUG profileByNormName keys:', [...profileByNormName.keys()]);
 
     let vacanciesUpserted = 0;
     let closed = 0;
@@ -203,16 +192,8 @@ export async function POST() {
     const skippedNoTitle: number[] = [];
 
     for (const row of vacancyRows) {
-      console.log(
-        'DEBUG processing row:', row.rowIndex,
-        'status:', row.values['Статус'],
-        'manager:', row.values['Менеджеры'],
-        'hhId:', row.values['ID HH'],
-      );
-
       const title = (row.values['Название вакансии'] ?? '').trim();
       if (title.length < 2) {
-        console.log('DEBUG skip reason:', 'no_title', 'row:', row.rowIndex);
         skippedNoTitle.push(row.rowIndex);
         continue;
       }
@@ -269,15 +250,9 @@ export async function POST() {
             email_confirm: true,
             user_metadata: { full_name: firstManager, role: 'manager' },
           });
-          if (createErr) {
-            console.log(
-              'DEBUG vacancy auto-create failed:', createErr.message,
-              'name:', firstManager, 'email:', fallbackEmail,
-            );
-          } else if (created?.user?.id) {
+          if (!createErr && created?.user?.id) {
             managerId = created.user.id;
             createdUsers += 1;
-            console.log('DEBUG auto-create from vacancy:', managerId, firstManager);
           }
         }
         if (managerId) {
@@ -286,10 +261,6 @@ export async function POST() {
       }
 
       if (!managerId) {
-        console.log('DEBUG skip manager (after auto-create attempt):', JSON.stringify({
-          row: row.rowIndex,
-          name: firstManager,
-        }));
         skippedManagersInVacancies.push({ row: row.rowIndex, name: firstManager || '(пусто)' });
         continue;
       }
@@ -385,15 +356,6 @@ export async function POST() {
         }
       }
     }
-
-    // DEBUG (временно): сводка цикла Data — куда делись строки.
-    console.log('SYNC RESULT:', {
-      total_rows: vacancyRows.length,
-      vacancies_upserted: vacanciesUpserted,
-      skipped_no_title: skippedNoTitle.length,
-      skipped_no_manager: skippedManagersInVacancies.length,
-      skipped_managers_list: skippedManagersInVacancies.slice(0, 20),
-    });
 
     // ── Бонусы_HR → bonus_rates (справочник «Должность → Стоимость») ────────
     // SPEC §5.3 / §5.6: лист «Бонусы_HR» хранит тарифы закрытия должности,

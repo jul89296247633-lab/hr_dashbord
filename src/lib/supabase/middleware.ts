@@ -11,7 +11,8 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
  *  - неавторизованный на любой странице (кроме /login) → /login;
  *  - авторизованный на /login → его домашняя страница по роли;
  *  - авторизованный на / → /cabinet (manager) или /dashboard (head/executive/admin);
- *  - /api/* — пропускаются (роуты сами отвечают 401 JSON, без redirect'ов).
+ *  - /admin/* доступен только admin и head — остальные роли уходят на свой home;
+ *  - /api/* — пропускаются (роуты сами отвечают 401/403 JSON, без redirect'ов).
  */
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   let supabaseResponse = NextResponse.next({ request });
@@ -62,7 +63,31 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     return redirectTo(request, home, supabaseResponse);
   }
 
+  // /admin/* — только admin и head. Остальным redirect на home.
+  // API-эндпоинты под /api/admin/* уже отсекаются ранним return по /api,
+  // там requireRole() в каждом роуте.
+  if (user && path.startsWith('/admin')) {
+    const role = await resolveRole(supabase, user.id);
+    if (role !== 'admin' && role !== 'head') {
+      const home = role === 'manager' ? '/cabinet' : '/dashboard';
+      return redirectTo(request, home, supabaseResponse);
+    }
+  }
+
   return supabaseResponse;
+}
+
+/** Роль пользователя из user_profiles (один запрос, без кэша — на /admin/* редко). */
+async function resolveRole(
+  supabase: ReturnType<typeof createServerClient>,
+  userId: string,
+): Promise<string | null> {
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role')
+    .eq('id', userId)
+    .single();
+  return (profile?.role as string | undefined) ?? null;
 }
 
 /** Домашний маршрут по роли пользователя. */
