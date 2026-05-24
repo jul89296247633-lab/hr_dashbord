@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
           .gte('snapshot_at', dayStart)
           .lt('snapshot_at', dayEnd);
 
-        await db.from('vacancy_snapshots').insert({
+        const snapshotPayload = {
           vacancy_id: ours.id,
           snapshot_at: dayStart,
           views_count: parseNumber(getColFirst(row, 'Показы, шт.', 'Показы')) ?? 0,
@@ -208,7 +208,26 @@ export async function POST(request: NextRequest) {
           // Звонки кандидатам — приходят в новом CSV vacancies (nullable).
           calls_count: parseNumber(getColFirst(row, 'Звонки, шт.', 'Звонки')),
           source: 'hh_csv',
+        };
+
+        console.log('SNAPSHOT INSERT:', {
+          vacancy_id: snapshotPayload.vacancy_id,
+          snapshot_at: snapshotPayload.snapshot_at,
+          responses_count: snapshotPayload.responses_count,
         });
+
+        const { error: insertSnapErr } = await db
+          .from('vacancy_snapshots')
+          .insert(snapshotPayload);
+        if (insertSnapErr) {
+          console.error(
+            'SNAPSHOT ERROR:', insertSnapErr.message,
+            'details:', insertSnapErr.details,
+            'hint:', insertSnapErr.hint,
+            'code:', insertSnapErr.code,
+          );
+          continue;
+        }
         snapshotsWritten += 1;
 
         // EC-03: если HH пометил вакансию архивной — закрываем у себя.
