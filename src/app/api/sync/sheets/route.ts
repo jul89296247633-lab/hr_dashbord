@@ -248,49 +248,36 @@ export async function POST() {
         priority: priorityMapped,
       };
 
-      // Upsert по hh_vacancy_id (если есть) — иначе по (title, manager_id, opened_at).
-      // Три-полевой ключ важен: у одного менеджера может быть несколько вакансий
-      // с одним названием, открытых в разные даты (см. migration
-      // 20260523220000 + partial UNIQUE INDEX). Без opened_at в ключе раньше они
-      // схлопывались в одну запись.
-      let vacancyId: string | null = null;
-      if (hhVacancyId) {
-        const { data: upserted } = await db
-          .from('vacancies')
-          .upsert(payload, { onConflict: 'hh_vacancy_id' })
-          .select('id')
-          .single();
-        vacancyId = upserted?.id ?? null;
-      } else if (openedAt) {
-        // Полный ключ есть → find by (title, manager_id, opened_at).
-        const { data: existing } = await db
-          .from('vacancies')
-          .select('id')
-          .eq('title', title)
-          .eq('manager_id', managerId)
-          .eq('opened_at', openedAt)
-          .is('hh_vacancy_id', null)
-          .maybeSingle();
-        if (existing) {
-          await db.from('vacancies').update(payload).eq('id', existing.id);
-          vacancyId = existing.id;
-        } else {
-          const { data: inserted } = await db
-            .from('vacancies')
-            .insert({ ...payload, opened_at: openedAt })
-            .select('id')
-            .single();
-          vacancyId = inserted?.id ?? null;
-        }
+      // ЕДИНСТВЕННЫЙ ключ дедупа = google_sheet_row (номер строки листа Data).
+      // Никаких lookup'ов по hh_vacancy_id или (title, manager_id, opened_at).
+      // Двухшаговый UPDATE-then-INSERT, т.к. supabase-js upsert не умеет
+      // partial UNIQUE INDEX (без ON CONFLICT ... WHERE clause).
+      // Phantoms (google_sheet_row IS NULL, наследие откатанного hh-csv
+      // auto-create) остаются нетронутыми — UNIQUE на hh_vacancy_id снят
+      // миграцией 20260524200000, поэтому INSERT с тем же hh_id не валится.
+      const insertPayload = {
+        ...payload,
+        opened_at: openedAt ?? new Date().toISOString().slice(0, 10),
+      };
+      let vacancyId: string;
+      const { data: updated, error: updateError } = await db
+        .from('vacancies')
+        .update(payload)
+        .eq('google_sheet_row', row.rowIndex)
+        .select('id')
+        .maybeSingle();
+      if (updateError) throw new ApiError(500, 'DB_ERROR', updateError.message);
+
+      if (updated) {
+        vacancyId = updated.id;
       } else {
-        // openedAt не пришёл из листа — дедуп невозможен, всегда INSERT.
-        // Сегодня = fallback для NOT NULL opened_at.
-        const { data: inserted } = await db
+        const { data: inserted, error: insertError } = await db
           .from('vacancies')
-          .insert({ ...payload, opened_at: new Date().toISOString().slice(0, 10) })
+          .insert(insertPayload)
           .select('id')
           .single();
-        vacancyId = inserted?.id ?? null;
+        if (insertError) throw new ApiError(500, 'DB_ERROR', insertError.message);
+        vacancyId = inserted.id;
       }
       vacanciesUpserted += 1;
 
@@ -299,27 +286,25 @@ export async function POST() {
       //  - 'стажировка' → employment_type='intern',   status='probation',
       //                    hired_date = M (если есть) иначе openedAt иначе сегодня.
       if ((isClosed && closedDate) || isProbation) {
-        if (vacancyId) {
-          const employmentType = isProbation ? 'intern' : 'employee';
-          const heStatus = isProbation ? 'probation' : 'hired';
-          const hiredDate =
-            closedDate ?? openedAt ?? new Date().toISOString().slice(0, 10);
-          await db.from('hired_employees').upsert(
-            {
-              sheet_row_id: row.rowIndex,
-              vacancy_id: vacancyId,
-              position_name: title,
-              hired_date: hiredDate,
-              employment_type: employmentType,
-              status: heStatus,
-              manager_name_sheet: firstManager || null,
-              synced_at: new Date().toISOString(),
-            },
-            { onConflict: 'sheet_row_id' },
-          );
-          if (isProbation) probation += 1;
-          else closed += 1;
-        }
+        const employmentType = isProbation ? 'intern' : 'employee';
+        const heStatus = isProbation ? 'probation' : 'hired';
+        const hiredDate =
+          closedDate ?? openedAt ?? new Date().toISOString().slice(0, 10);
+        await db.from('hired_employees').upsert(
+          {
+            sheet_row_id: row.rowIndex,
+            vacancy_id: vacancyId,
+            position_name: title,
+            hired_date: hiredDate,
+            employment_type: employmentType,
+            status: heStatus,
+            manager_name_sheet: firstManager || null,
+            synced_at: new Date().toISOString(),
+          },
+          { onConflict: 'sheet_row_id' },
+        );
+        if (isProbation) probation += 1;
+        else closed += 1;
       }
     }
 
