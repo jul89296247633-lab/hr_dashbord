@@ -16,6 +16,7 @@ import {
   BONUSES_TAB,
   type SheetRow,
 } from '@/lib/google-sheets';
+import { provisionManager } from '@/lib/auto-provision';
 
 /**
  * POST /api/sync/sheets — ручная синхронизация Google Sheets (head, admin).
@@ -94,48 +95,17 @@ export async function POST() {
         profileByName.get(name.toLowerCase()) ??
         null;
 
-      // Авто-создание пользователя, если профиль не найден.
-      // user_profiles создаст триггер handle_new_user из user_metadata —
-      // ручной INSERT не нужен (был бы дубль/конфликт по PK).
-      // Идемпотентно: ищем профиль по обоим email-кандидатам (sheet + fallback)
-      // регистронезависимо (ilike), и только потом — createUser.
+      // Авто-создание пользователя — общий хелпер `provisionManager`
+      // (см. lib/auto-provision.ts). Триггер handle_new_user создаёт
+      // user_profiles из user_metadata, ручной INSERT не нужен.
       if (!userProfileId) {
-        const fallbackEmail = emailFromName(name);
-        const candidates = Array.from(
-          new Set(
-            [emailFromSheet?.toLowerCase(), fallbackEmail].filter(
-              (e): e is string => Boolean(e),
-            ),
-          ),
-        );
-
-        for (const candidate of candidates) {
-          const { data: existing } = await db
-            .from('user_profiles')
-            .select('id')
-            .ilike('email', candidate)
-            .maybeSingle();
-          if (existing?.id) {
-            userProfileId = existing.id;
-            break;
-          }
-        }
-
-        if (!userProfileId) {
-          const createEmail = (emailFromSheet || fallbackEmail).toLowerCase();
-          const { data: created, error: createErr } = await db.auth.admin.createUser({
-            email: createEmail,
-            password: crypto.randomUUID(),
-            email_confirm: true,
-            user_metadata: { full_name: name, role: 'manager' },
-          });
-          if (!createErr && created?.user?.id) {
-            userProfileId = created.user.id;
-            createdUsers += 1;
-            // Прогрев кэшей, чтобы повторы в этой же sync-сессии находили его.
-            profileByName.set(name.toLowerCase(), userProfileId);
-            profileByEmail.set(createEmail, userProfileId);
-          }
+        const result = await provisionManager(db, name, emailFromSheet);
+        if (result.userProfileId) {
+          userProfileId = result.userProfileId;
+          if (result.created) createdUsers += 1;
+          // Прогрев кэшей, чтобы повторы в этой же sync-сессии находили его.
+          profileByName.set(name.toLowerCase(), userProfileId);
+          profileByEmail.set(result.email, userProfileId);
         }
       }
 
@@ -228,34 +198,12 @@ export async function POST() {
         ? profileByNormName.get(normalizeFullName(firstManager)) ?? null
         : null;
 
-      // Авто-провижининг: если ФИО есть, но его нет в user_profiles —
-      // создаём auth-юзера так же, как блок syncManagersList выше.
-      // Сначала ищем по fallback-email (на случай если профиль есть, но имена
-      // в листе Data и листе «HR_менеджеры» написаны по-разному), затем createUser.
-      // Триггер handle_new_user сам материализует user_profiles из user_metadata.
+      // Авто-провижининг ФИО из строки Data через общий хелпер.
       if (!managerId && firstManager) {
-        const fallbackEmail = emailFromName(firstManager);
-        const { data: existingByEmail } = await db
-          .from('user_profiles')
-          .select('id')
-          .ilike('email', fallbackEmail)
-          .maybeSingle();
-
-        if (existingByEmail?.id) {
-          managerId = existingByEmail.id;
-        } else {
-          const { data: created, error: createErr } = await db.auth.admin.createUser({
-            email: fallbackEmail,
-            password: crypto.randomUUID(),
-            email_confirm: true,
-            user_metadata: { full_name: firstManager, role: 'manager' },
-          });
-          if (!createErr && created?.user?.id) {
-            managerId = created.user.id;
-            createdUsers += 1;
-          }
-        }
-        if (managerId) {
+        const result = await provisionManager(db, firstManager);
+        if (result.userProfileId) {
+          managerId = result.userProfileId;
+          if (result.created) createdUsers += 1;
           profileByNormName.set(normalizeFullName(firstManager), managerId);
         }
       }
@@ -509,30 +457,5 @@ function pickPositiveInt(value: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-// ── Авто-создание пользователей по списку из Sheets ─────────────────────────
-
-const RU_TO_EN: Record<string, string> = {
-  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z',
-  и: 'i', й: 'i', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r',
-  с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh',
-  щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'iu', я: 'ia',
-};
-
-/** Простая транслитерация ФИО кириллица→латиница для генерации fallback-email. */
-function transliterate(input: string): string {
-  return input
-    .toLowerCase()
-    .split('')
-    .map((ch) => RU_TO_EN[ch] ?? ch)
-    .join('');
-}
-
-/** «Иванов Иван Иванович» → «ivanov.ivan.ivanovich@hr.local».
- *  Используется когда у менеджера в Sheets нет email — чтобы createUser
- *  получил уникальный детерминированный адрес и был идемпотентен. */
-function emailFromName(name: string): string {
-  const slug = transliterate(name)
-    .replace(/[^a-z0-9]+/g, '.')
-    .replace(/^\.+|\.+$/g, '');
-  return `${slug || 'user'}@hr.local`;
-}
+// (transliterate / emailFromName / provisionManager переехали в
+//  lib/auto-provision.ts — общий хелпер для sheets и hh-csv sync.)

@@ -17,6 +17,7 @@ import {
   parsePercent,
   parseBoolYesNo,
 } from '@/lib/hh-csv-parser';
+import { provisionManager } from '@/lib/auto-provision';
 
 // Лимит размера CSV (защита от DoS): 10 MiB. Превышение → 413 FILE_TOO_LARGE.
 const MAX_CSV_BYTES = 10 * 1024 * 1024;
@@ -107,8 +108,9 @@ export async function POST(request: NextRequest) {
 
     // ── type=vacancies → vacancy_snapshots + EC-03 (auto-close) ───────────────
     if (reportType === 'vacancies') {
-      // Загружаем карту наших вакансий по hh_vacancy_id (только активные/на паузе/draft;
-      // уже закрытые не апдейтим повторно).
+      // Карта вакансий по hh_vacancy_id (всех статусов — нужно знать, что у
+      // нас уже было). Если в CSV приходит hh_vacancy_id, которого нет — мы
+      // авто-создадим вакансию по данным CSV (title/location/status/manager).
       const { data: ourVacancies } = await db
         .from('vacancies')
         .select('id, hh_vacancy_id, status')
@@ -117,8 +119,27 @@ export async function POST(request: NextRequest) {
         (ourVacancies ?? []).map((v) => [String(v.hh_vacancy_id), { id: v.id, status: v.status }]),
       );
 
+      // user_profiles для матчинга «Менеджеры» из CSV → manager_id.
+      // Используем нормализованное ФИО (lower, ё→е, схлопывание пробелов) +
+      // вариант «Фамилия Имя» (HH часто отдаёт ФИО с отчеством).
+      const { data: profiles } = await db
+        .from('user_profiles')
+        .select('id, full_name');
+      const profileByNormName = new Map(
+        (profiles ?? []).map((p) => [normalizeName(p.full_name), p.id]),
+      );
+      const profileByFirstTwo = new Map<string, string>();
+      for (const p of profiles ?? []) {
+        const k = firstTwoWords(normalizeName(p.full_name));
+        // Только первое попадание — однофамильцы с одинаковым именем
+        // не сматчатся однозначно (оставляем undefined для них).
+        if (!profileByFirstTwo.has(k)) profileByFirstTwo.set(k, p.id);
+      }
+
       let matched = 0;
       let closed = 0;
+      let createdVacancies = 0;
+      let createdUsers = 0;
       const skipped: string[] = [];
 
       // Границы дня для DELETE-перед-INSERT (см. ниже).
@@ -128,10 +149,64 @@ export async function POST(request: NextRequest) {
       for (const row of rows) {
         const hhId = getCol(row, 'id вакансии');
         if (!hhId) continue;
-        const ours = vacancyByHhId.get(hhId);
+        let ours = vacancyByHhId.get(hhId);
+
+        // Авто-создание вакансии, если её ещё нет в БД.
+        // Источник данных — сам CSV (title / location / manager / status).
         if (!ours) {
-          skipped.push(hhId);
-          continue;
+          const title = getColFirst(row, 'Название вакансии', 'Название').trim();
+          const location = getColFirst(row, 'Населённый пункт', 'Населенный пункт', 'Город').trim() || null;
+          const managersRaw = getCol(row, 'Менеджеры');
+          const firstManager = (managersRaw.split(/[,;]/)[0] ?? '').trim();
+          const isClosed =
+            parseBoolYesNo(getCol(row, 'Архивная')) ||
+            parseBoolYesNo(getCol(row, 'Закрытая'));
+          const closedAt = parseRuDate(getCol(row, 'Фактическая дата архивации'));
+          const openedAt = parseRuDate(getCol(row, 'Дата создания')) ?? statDate;
+
+          if (title.length < 2 || !firstManager) {
+            skipped.push(hhId);
+            continue;
+          }
+
+          // Матчинг менеджера: exact normalize → «Фамилия Имя» → авто-создать.
+          const norm = normalizeName(firstManager);
+          let managerId =
+            profileByNormName.get(norm) ?? profileByFirstTwo.get(firstTwoWords(norm)) ?? null;
+          if (!managerId) {
+            const result = await provisionManager(db, firstManager);
+            if (result.userProfileId) {
+              managerId = result.userProfileId;
+              if (result.created) createdUsers += 1;
+              profileByNormName.set(norm, managerId);
+              profileByFirstTwo.set(firstTwoWords(norm), managerId);
+            }
+          }
+          if (!managerId) {
+            skipped.push(hhId);
+            continue;
+          }
+
+          const { data: inserted, error: insertErr } = await db
+            .from('vacancies')
+            .insert({
+              hh_vacancy_id: hhId,
+              title,
+              location,
+              manager_id: managerId,
+              status: isClosed ? 'closed' : 'active',
+              opened_at: openedAt,
+              closed_at: isClosed ? (closedAt ?? statDate) : null,
+            })
+            .select('id, status')
+            .single();
+          if (insertErr || !inserted) {
+            skipped.push(hhId);
+            continue;
+          }
+          ours = { id: inserted.id, status: inserted.status };
+          vacancyByHhId.set(hhId, ours);
+          createdVacancies += 1;
         }
 
         // Идемпотентность: одна запись snapshot за день на вакансию.
@@ -183,9 +258,12 @@ export async function POST(request: NextRequest) {
           rows_parsed: rows.length,
           rows_matched: matched,
           rows_closed: closed,
+          rows_created_vacancies: createdVacancies,
+          rows_created_users: createdUsers,
           rows_skipped: skipped.length,
           skipped_hh_ids: skipped.slice(0, 50),
-          skip_reason: 'hh_vacancy_id не найден в наших вакансиях',
+          skip_reason:
+            'нет «Название вакансии»/«Менеджеры» в строке CSV (создать вакансию не из чего)',
         },
       });
     }
@@ -222,6 +300,7 @@ export async function POST(request: NextRequest) {
     let matchedExact = 0;
     let matchedFirstTwo = 0;
     let matchedFuzzy = 0;
+    let matchedCreated = 0;
     const fuzzyMatches: FuzzyMatch[] = [];
     const skippedNames: string[] = [];
 
@@ -233,7 +312,7 @@ export async function POST(request: NextRequest) {
 
       // (1) Приоритет: по hh_manager_id.
       let sync = hhManagerId ? byHhId.get(hhManagerId) : undefined;
-      let matchedVia: 'id' | 'exact' | 'first_two' | 'fuzzy' | null = sync ? 'id' : null;
+      let matchedVia: 'id' | 'exact' | 'first_two' | 'fuzzy' | 'created' | null = sync ? 'id' : null;
 
       // (2) По нормализованному ФИО.
       if (!sync) {
@@ -258,6 +337,47 @@ export async function POST(request: NextRequest) {
           sync = fuzzy.sync;
           matchedVia = 'fuzzy';
           fuzzyMatches.push({ hh_name: hhName, matched_to: fuzzy.sync.sheet_full_name, score: fuzzy.score });
+        }
+      }
+
+      // (5) Не нашли — авто-создаём auth.user + user_profiles по ФИО из HH
+      //     (см. lib/auto-provision.ts). Параллельно создаём запись в
+      //     hr_manager_syncs, чтобы при следующих загрузках матч шёл по id.
+      if (!sync) {
+        const result = await provisionManager(db, hhName);
+        if (result.userProfileId) {
+          const newSync = {
+            id: '',
+            sheet_full_name: hhName,
+            user_profile_id: result.userProfileId,
+            hh_manager_id: hhManagerId,
+          };
+          const { data: insertedSync } = await db
+            .from('hr_manager_syncs')
+            .upsert(
+              {
+                sheet_full_name: hhName,
+                user_profile_id: result.userProfileId,
+                hh_manager_id: hhManagerId,
+                email_sheet: result.email,
+                synced_at: new Date().toISOString(),
+              },
+              { onConflict: 'sheet_full_name' },
+            )
+            .select('id')
+            .single();
+          newSync.id = insertedSync?.id ?? '';
+          sync = newSync;
+          matchedVia = 'created';
+          matchedCreated += 1;
+          // Прогрев кэшей — повторы в этой же сессии находят через все 3 карты.
+          linked.push(newSync);
+          if (hhManagerId) byHhId.set(hhManagerId, newSync);
+          exactMap.set(norm, newSync);
+          const ftKey = firstTwoWords(norm);
+          const bucket = firstTwoMap.get(ftKey) ?? [];
+          bucket.push(newSync);
+          firstTwoMap.set(ftKey, bucket);
         }
       }
 
@@ -316,7 +436,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const matched = matchedById + matchedExact + matchedFirstTwo + matchedFuzzy;
+    const matched =
+      matchedById + matchedExact + matchedFirstTwo + matchedFuzzy + matchedCreated;
     await logSync(db, user.id, rows.length, matched, 'ok');
 
     return apiSuccess({
@@ -329,10 +450,11 @@ export async function POST(request: NextRequest) {
         rows_matched_exact: matchedExact,
         rows_matched_first_two: matchedFirstTwo,
         rows_matched_fuzzy: matchedFuzzy,
+        rows_created_users: matchedCreated,
         fuzzy_matches: fuzzyMatches,
         rows_skipped: skippedNames.length,
         skipped_names: skippedNames,
-        skip_reason: "Не найдены в листе 'HR менеджеры' Google Sheets — не наши менеджеры",
+        skip_reason: 'createUser упал (см. логи функции)',
       },
     });
   } catch (err) {
