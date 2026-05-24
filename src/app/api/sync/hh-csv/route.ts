@@ -127,11 +127,20 @@ export async function POST(request: NextRequest) {
       let snapshotsWritten = 0;
       let closed = 0;
       let matchedNoVacancy = 0;
+      let skippedLocked = 0;
       const skipped: string[] = [];
 
       // Границы дня для DELETE-перед-INSERT (см. ниже).
       const dayStart = `${statDate}T00:00:00Z`;
       const dayEnd = `${addDays(statDate, 1)}T00:00:00Z`;
+
+      // Если statDate относится к прошлому календарному месяцу, нужно
+      // уважать lock: head/admin мог «зафиксировать» этот период через
+      // /api/sync/lock-period — после этого исторические snapshots не
+      // перезаписываются повторными загрузками CSV.
+      const today = new Date().toISOString().slice(0, 10);
+      const firstOfThisMonth = `${today.slice(0, 7)}-01`;
+      const statDateIsPast = statDate < firstOfThisMonth;
 
       for (const row of rows) {
         const hhId = getCol(row, 'id вакансии');
@@ -146,6 +155,23 @@ export async function POST(request: NextRequest) {
           // не из листа «Data». Пропускаем snapshot, но не считаем как ошибку.
           matchedNoVacancy += 1;
           continue;
+        }
+
+        // Если месяц зафиксирован — пропускаем перезапись существующего
+        // locked snapshot за этот день (исторические данные защищены).
+        if (statDateIsPast) {
+          const { data: existingLocked } = await db
+            .from('vacancy_snapshots')
+            .select('id')
+            .eq('vacancy_id', ours.id)
+            .eq('is_locked', true)
+            .gte('snapshot_at', dayStart)
+            .lt('snapshot_at', dayEnd)
+            .limit(1);
+          if (existingLocked && existingLocked.length > 0) {
+            skippedLocked += 1;
+            continue;
+          }
         }
 
         // Идемпотентность: одна запись snapshot за день на вакансию.
@@ -200,6 +226,7 @@ export async function POST(request: NextRequest) {
       console.log(
         'snapshots written:', snapshotsWritten,
         'skipped no vacancy:', matchedNoVacancy,
+        'skipped locked:', skippedLocked,
       );
 
       await logSync(db, user.id, rows.length, matched, 'ok');
@@ -215,6 +242,8 @@ export async function POST(request: NextRequest) {
           // (CSV знает больше, чем «Data» Sheet). Считаем как matched, но
           // snapshot не пишется — нет vacancy_id для FK.
           rows_matched_no_vacancy: matchedNoVacancy,
+          // Пропущено из-за блокировки месяца (lock-period).
+          rows_skipped_locked: skippedLocked,
           rows_skipped: skipped.length,
           skipped_hh_ids: skipped.slice(0, 50),
           skip_reason: 'строка CSV без значения «id вакансии»',

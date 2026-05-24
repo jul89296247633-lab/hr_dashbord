@@ -13,6 +13,7 @@ import { KpiCards } from '@/components/dashboard/KpiCards';
 import { TeamFunnel } from '@/components/dashboard/TeamFunnel';
 import { DivisionCards } from '@/components/dashboard/DivisionCards';
 import { TeamTable } from '@/components/dashboard/TeamTable';
+import { MonthPicker, currentMonthYM } from '@/components/dashboard/MonthPicker';
 import type {
   DashboardPeriod,
   TeamResponse,
@@ -32,7 +33,11 @@ export function DashboardClient({ role }: { role: Role }) {
   const canSeeTeam = role === 'head' || role === 'admin';
   const canEditStaffing = role === 'head' || role === 'admin';
 
-  const [period, setPeriod] = useState<DashboardPeriod>('week');
+  // По умолчанию открываем дашборд за текущий месяц (MonthPicker).
+  // period='today'|'week' переключают на короткие окна, при 'month' окно
+  // задаёт selectedMonth (YYYY-MM).
+  const [period, setPeriod] = useState<DashboardPeriod>('month');
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthYM());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,14 +51,15 @@ export function DashboardClient({ role }: { role: Role }) {
     setError(null);
     try {
       const divisionsPeriod = period === 'today' ? 'week' : period;
-      // politeness грузим для всех ролей — компанийный индекс отображается
-      // в карточке /dashboard. API /api/stats/politeness не требует head/admin.
+      // При period='month' прокидываем выбранный YYYY-MM в API; иначе month
+      // игнорируется на серверной стороне.
+      const monthQs = period === 'month' ? `&month=${selectedMonth}` : '';
       const [t, d, s, p] = await Promise.all([
-        fetchData<TeamResponse>(`/api/dashboard/team?period=${period}`),
-        fetchData<DivisionsResponse>(`/api/dashboard/divisions?period=${divisionsPeriod}`),
+        fetchData<TeamResponse>(`/api/dashboard/team?period=${period}${monthQs}`),
+        fetchData<DivisionsResponse>(`/api/dashboard/divisions?period=${divisionsPeriod}${monthQs}`),
         fetchData<StaffingResponse>('/api/staffing'),
         // politeness не принимает 'today' — маппим в 'week' (review 4.5 #4).
-        fetchData<PolitenessResponse>(`/api/stats/politeness?period=${divisionsPeriod}`),
+        fetchData<PolitenessResponse>(`/api/stats/politeness?period=${divisionsPeriod}${monthQs}`),
       ]);
       setTeam(t);
       setDivisions(d);
@@ -64,7 +70,7 @@ export function DashboardClient({ role }: { role: Role }) {
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, selectedMonth]);
 
   useEffect(() => {
     void load();
@@ -89,13 +95,23 @@ export function DashboardClient({ role }: { role: Role }) {
     <div className="grid gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Дашборд отдела</h1>
-        <Tabs value={period} onValueChange={(v) => setPeriod(v as DashboardPeriod)}>
-          <TabsList>
-            <TabsTrigger value="today">Сегодня</TabsTrigger>
-            <TabsTrigger value="week">Неделя</TabsTrigger>
-            <TabsTrigger value="month">Месяц</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Tabs только Сегодня/Неделя. Третий режим — конкретный месяц,
+              выбирается через MonthPicker (автоматически переводит в month). */}
+          <Tabs value={period} onValueChange={(v) => setPeriod(v as DashboardPeriod)}>
+            <TabsList>
+              <TabsTrigger value="today">Сегодня</TabsTrigger>
+              <TabsTrigger value="week">Неделя</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <MonthPicker
+            value={selectedMonth}
+            onChange={(ym) => {
+              setSelectedMonth(ym);
+              setPeriod('month');
+            }}
+          />
+        </div>
       </div>
 
       {error && (

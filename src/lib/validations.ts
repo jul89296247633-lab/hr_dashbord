@@ -104,6 +104,11 @@ export const dashboardPeriodSchema = z
   .enum(['today', 'week', 'month'])
   .default('week');
 
+/** Month query param формата `YYYY-MM` для MonthPicker (/dashboard). */
+export const monthYmSchema = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month: формат YYYY-MM');
+
 /** Период для воронки вакансии (включая 'all'). */
 export const funnelPeriodSchema = z
   .enum(['today', 'week', 'month', 'all'])

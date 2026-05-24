@@ -10,6 +10,7 @@ import {
   Briefcase,
   Upload,
   FileSpreadsheet,
+  Lock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -17,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MonthPicker, currentMonthYM } from '@/components/dashboard/MonthPicker';
 
 type CsvType = 'vacancies' | 'politeness_managers';
 
@@ -134,6 +136,9 @@ export function SyncClient() {
           onRun={() => runSync('mango', '/api/sync/mango')}
         />
       </div>
+
+      {/* Фиксация исторических данных. */}
+      <LockPeriodCard />
 
       {/* Загрузка CSV */}
       <Card>
@@ -277,6 +282,55 @@ function CsvUploadCard({
           Загрузить
         </Button>
         {result && <p className="text-xs text-green-700">{result}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LockPeriodCard() {
+  const [month, setMonth] = useState(currentMonthYM());
+  const [locking, setLocking] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function handleLock() {
+    setLocking(true);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/sync/lock-period?month=${month}`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json?.error?.message ?? 'Ошибка фиксации');
+        return;
+      }
+      const cnt = json.data?.locked_count ?? 0;
+      setResult(`Зафиксировано snapshot'ов: ${cnt}`);
+      toast.success(`Период ${month} зафиксирован`);
+    } catch {
+      toast.error('Ошибка фиксации');
+    } finally {
+      setLocking(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Lock className="size-4" />
+          Зафиксировать месяц
+        </CardTitle>
+        <p className="text-muted-foreground text-sm">
+          После фиксации повторная загрузка CSV за эти даты не перезапишет данные.
+          Журнал отметит событие как «🔒 Фиксация периода».
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-center gap-2">
+        <MonthPicker value={month} onChange={setMonth} />
+        <Button size="sm" onClick={handleLock} disabled={locking}>
+          {locking ? <Loader2 className="size-4 animate-spin" /> : <Lock className="size-4" />}
+          Зафиксировать
+        </Button>
+        {result && <span className="text-xs text-green-700">{result}</span>}
       </CardContent>
     </Card>
   );

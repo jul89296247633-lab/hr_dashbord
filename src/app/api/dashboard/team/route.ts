@@ -11,6 +11,7 @@ import {
   kpiPct,
   calcManagerStatus,
   currentMonthRange,
+  monthRangeFromYM,
 } from '@/lib/api-helpers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { dashboardPeriodSchema } from '@/lib/validations';
@@ -43,7 +44,12 @@ export async function GET(request: NextRequest) {
       return apiError('VALIDATION_ERROR', periodParsed.error.issues[0].message, 422);
     }
     const period = periodParsed.data;
-    const { from, to } = getPeriodRange(period);
+    // MonthPicker: ?month=YYYY-MM переопределяет month-окно. При period=today/week
+    // параметр игнорируется (тогда границы задаёт getPeriodRange).
+    const monthParam = request.nextUrl.searchParams.get('month') ?? undefined;
+    const usingPickedMonth = period === 'month' && monthParam !== undefined;
+    const monthWindow = usingPickedMonth ? monthRangeFromYM(monthParam) : null;
+    const { from, to } = monthWindow ?? getPeriodRange(period);
     // period ∈ {today, week, month} — границы всегда заданы.
     const workdays = workdaysBetween(from as string, to as string);
 
@@ -65,9 +71,9 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // «Выведено» считается всегда за полный текущий месяц через vacancies.closed_at,
-    // независимо от селектора периода страницы — план найма у менеджера месячный.
-    const month = currentMonthRange();
+    // «Закрыто вакансий» — за выбранный пользователем месяц (MonthPicker),
+    // иначе за полный текущий календарный месяц (SPEC §5.3: план найма помесячный).
+    const month = monthWindow ?? currentMonthRange();
 
     // Параллельно: планы, активности за период, активные вакансии (без даты),
     // закрытые за текущий месяц (по vacancies.closed_at).

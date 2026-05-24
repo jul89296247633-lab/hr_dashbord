@@ -8,6 +8,7 @@ import {
 } from '@/lib/api-helpers';
 import { createClient } from '@/lib/supabase/server';
 import { dateStringSchema } from '@/lib/validations';
+import { monthRangeFromYM } from '@/lib/api-helpers';
 
 type Trend = 'up' | 'down' | 'flat';
 
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
 
     const sp = request.nextUrl.searchParams;
     const dateParam = sp.get('date');
+    const monthParam = sp.get('month');
     let from: string;
     let to: string;
     if (dateParam) {
@@ -41,6 +43,11 @@ export async function GET(request: NextRequest) {
       }
       from = dateParam;
       to = dateParam;
+    } else if (sp.get('period') === 'month' && monthParam) {
+      // MonthPicker: ?period=month&month=YYYY-MM → точное окно месяца.
+      const range = monthRangeFromYM(monthParam);
+      from = range.from;
+      to = range.to;
     } else {
       const days = PERIOD_DAYS[sp.get('period') ?? 'month'] ?? 30;
       to = new Date().toISOString().slice(0, 10);

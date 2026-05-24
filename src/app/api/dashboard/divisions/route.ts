@@ -9,6 +9,7 @@ import {
 } from '@/lib/api-helpers';
 import { createClient } from '@/lib/supabase/server';
 import { divisionsPeriodSchema } from '@/lib/validations';
+import { monthRangeFromYM } from '@/lib/api-helpers';
 
 const NO_SUBDIVISION = 'Без подразделения';
 const NO_LOCATION = 'Не указан';
@@ -51,7 +52,11 @@ export async function GET(request: NextRequest) {
     if (!periodParsed.success) {
       return apiError('VALIDATION_ERROR', periodParsed.error.issues[0].message, 422);
     }
-    const { from, to } = periodRange(periodParsed.data);
+    const monthParam = request.nextUrl.searchParams.get('month') ?? undefined;
+    const usingPickedMonth = periodParsed.data === 'month' && monthParam !== undefined;
+    const { from, to } = usingPickedMonth
+      ? monthRangeFromYM(monthParam)
+      : periodRange(periodParsed.data);
     const subdivisionFilter = request.nextUrl.searchParams.get('subdivision');
 
     const supabase = await createClient();

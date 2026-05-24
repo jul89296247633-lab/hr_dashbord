@@ -556,19 +556,28 @@ CREATE TABLE public.vacancy_snapshots (
   vacancy_id           UUID NOT NULL REFERENCES public.vacancies(id) ON DELETE CASCADE,
   snapshot_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   -- Данные из HH API: общая воронка по вакансии
-  responses_count      INTEGER NOT NULL DEFAULT 0 CHECK (responses_count >= 0),
+  responses_count            INTEGER NOT NULL DEFAULT 0 CHECK (responses_count >= 0),
   -- Кол-во резюме, по которым менеджер открыл контакт (просмотрел телефон/email)
-  contacts_opened      INTEGER NOT NULL DEFAULT 0 CHECK (contacts_opened >= 0),
-  -- Кол-во приглашений, отправленных кандидатам через HH
-  invitations_sent     INTEGER NOT NULL DEFAULT 0 CHECK (invitations_sent >= 0),
+  contacts_opened            INTEGER NOT NULL DEFAULT 0 CHECK (contacts_opened >= 0),
+  -- Бесплатные приглашения, отправленные на отклики (исторически invitations_sent).
+  invitations_from_responses INTEGER NOT NULL DEFAULT 0 CHECK (invitations_from_responses >= 0),
+  -- ⓟ Платные приглашения по контактам из базы резюме HH (nullable).
+  invitations_from_db        INTEGER CHECK (invitations_from_db IS NULL OR invitations_from_db >= 0),
+  -- Звонки кандидатам (из нового CSV vacancies). Nullable — старые snapshots без поля.
+  calls_count                INTEGER CHECK (calls_count IS NULL OR calls_count >= 0),
   -- Кол-во просмотров резюме (открытых карточек без раскрытия контакта)
-  views_count          INTEGER NOT NULL DEFAULT 0 CHECK (views_count >= 0),
-  -- 'hh_api' = автоматически cron; 'manual' = введено вручную
-  source               TEXT NOT NULL DEFAULT 'hh_api'
-                         CHECK (source IN ('hh_api', 'manual')),
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  views_count                INTEGER NOT NULL DEFAULT 0 CHECK (views_count >= 0),
+  -- 'hh_api' = автоматически cron; 'manual' = введено вручную; 'hh_csv' = загрузка CSV
+  source                     TEXT NOT NULL DEFAULT 'hh_api'
+                               CHECK (source IN ('hh_api', 'manual', 'hh_csv')),
+  -- Lock-period (SPEC §5.6c): head/admin фиксирует месяц → перезапись запрещена.
+  is_locked                  BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
   -- Нет updated_at — snapshot иммутабелен
 );
+
+CREATE INDEX idx_vacancy_snapshots_locked ON public.vacancy_snapshots(vacancy_id, snapshot_at)
+  WHERE is_locked = TRUE;
 
 CREATE INDEX idx_snapshots_vacancy_id ON public.vacancy_snapshots(vacancy_id);
 -- DESC для быстрого получения последнего snapshot
@@ -3960,6 +3969,33 @@ LANGUAGE SQL STABLE AS $$
   LIMIT 1;
 $$;
 ```
+
+### 5.6c. Lock-period — фиксация исторических данных
+
+Чтобы повторная загрузка CSV из HH за прошлые месяцы не «затирала» уже
+просмотренные/принятые числа, в `vacancy_snapshots` добавлено поле `is_locked
+BOOLEAN DEFAULT false` (миграция `20260524100000_vacancy_snapshots_is_locked`).
+
+**Lock API:** `POST /api/sync/lock-period?month=YYYY-MM` (head/admin).
+Выставляет `is_locked = TRUE` всем snapshot'ам в указанном месяце.
+Параллельно пишет запись в `sync_logs` с `source='lock-period'` —
+в журнале (`/sync/logs`) такие события отмечаются «🔒 Фиксация периода».
+
+**Поведение sync:** `/api/sync/hh-csv?type=vacancies` проверяет, относится ли
+`stat_date` к прошлому календарному месяцу. Если да — перед DELETE-перед-INSERT
+ищем locked snapshot за этот день и эту вакансию; если найден — пропускаем
+строку, инкрементируем `rows_skipped_locked`. Snapshots текущего месяца
+перезаписываются всегда (текущий месяц не блокируется).
+
+**UI:** карточка «Зафиксировать месяц» на `/sync` (MonthPicker + Lock).
+Журнал `/sync/logs` фильтруется источником «🔒 Фиксация периода».
+
+### 5.6d. MonthPicker на `/dashboard`
+
+Tabs «Сегодня / Неделя» + Select с последними 12 месяцами + текущим. При
+выборе месяца API получают `?period=month&month=YYYY-MM`. Дашборд-routes
+(`team`, `manager`, `me`, `divisions`, `stats/politeness`) обрабатывают
+`month` параметр через хелпер `monthRangeFromYM(ym)` из `lib/api-helpers.ts`.
 
 ### 5.6b. Интеграция с Google Sheets (источник данных о закрытых вакансиях и найме)
 (файл загружается вручную admin-ом через форму на `/admin/integrations`).

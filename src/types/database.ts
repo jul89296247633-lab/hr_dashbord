@@ -153,6 +153,7 @@ export type Database = {
           calls_count: number | null;
           views_count: number;
           source: string;
+          is_locked: boolean;
           created_at: string;
         };
         Insert: {
@@ -166,6 +167,7 @@ export type Database = {
           calls_count?: number | null;
           views_count?: number;
           source?: string;
+          is_locked?: boolean;
           created_at?: string;
         };
         Update: {
@@ -179,6 +181,7 @@ export type Database = {
           calls_count?: number | null;
           views_count?: number;
           source?: string;
+          is_locked?: boolean;
           created_at?: string;
         };
         Relationships: [

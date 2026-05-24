@@ -214,3 +214,18 @@ export function currentMonthRange(): { from: string; to: string } {
     to: `${y}-${mm}-${String(lastDay).padStart(2, '0')}`,
   };
 }
+
+/** «YYYY-MM» → [1-е, последний день]. Невалидный формат → текущий месяц.
+ *  Используется в /api/dashboard/* для query-param `month` (MonthPicker). */
+export function monthRangeFromYM(ym: string | null | undefined): { from: string; to: string } {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return currentMonthRange();
+  const [yStr, mStr] = ym.split('-');
+  const y = Number(yStr);
+  const m = Number(mStr);
+  if (m < 1 || m > 12) return currentMonthRange();
+  const lastDay = new Date(y, m, 0).getDate();
+  return {
+    from: `${ym}-01`,
+    to: `${ym}-${String(lastDay).padStart(2, '0')}`,
+  };
+}

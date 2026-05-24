@@ -29,6 +29,7 @@ const SOURCE_LABEL: Record<string, string> = {
   mango: 'Манго',
   hh_csv: 'HH CSV',
   sheets: 'Google Sheets',
+  'lock-period': '🔒 Фиксация периода',
 };
 const STATUS_COLOR: Record<string, string> = {
   running: 'bg-blue-100 text-blue-800',
@@ -110,6 +111,7 @@ export function SyncLogsClient() {
             <SelectItem value="mango">Манго</SelectItem>
             <SelectItem value="hh_csv">HH CSV</SelectItem>
             <SelectItem value="sheets">Google Sheets</SelectItem>
+            <SelectItem value="lock-period">🔒 Фиксация периода</SelectItem>
           </SelectContent>
         </Select>
         <Select

@@ -10,6 +10,7 @@ import {
   kpiPct,
   statusFromPct,
   currentMonthRange,
+  monthRangeFromYM,
 } from '@/lib/api-helpers';
 import { createClient } from '@/lib/supabase/server';
 import { dashboardPeriodSchema } from '@/lib/validations';
@@ -32,7 +33,10 @@ export async function GET(request: NextRequest) {
       return apiError('VALIDATION_ERROR', periodParsed.error.issues[0].message, 422);
     }
     const period = periodParsed.data;
-    const { from, to } = getPeriodRange(period);
+    const monthParam = request.nextUrl.searchParams.get('month') ?? undefined;
+    const usingPickedMonth = period === 'month' && monthParam !== undefined;
+    const monthWindow = usingPickedMonth ? monthRangeFromYM(monthParam) : null;
+    const { from, to } = monthWindow ?? getPeriodRange(period);
     const workdays = workdaysBetween(from as string, to as string);
 
     const supabase = await createClient();
@@ -66,9 +70,8 @@ export async function GET(request: NextRequest) {
       .not('hh_vacancy_id', 'is', null);
     if (vacError) throw new ApiError(500, 'DB_ERROR', vacError.message);
 
-    // «Выведено» — всегда за полный текущий месяц через vacancies.closed_at,
-    // независимо от селектора периода (SPEC §5.3).
-    const month = currentMonthRange();
+    // «Закрыто вакансий» — за выбранный месяц (MonthPicker) или текущий.
+    const month = monthWindow ?? currentMonthRange();
     const { data: closedThisMonth, error: closedError } = await supabase
       .from('vacancies')
       .select('id, closed_at')
