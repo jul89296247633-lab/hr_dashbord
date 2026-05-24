@@ -61,10 +61,15 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient();
 
+    // google_sheet_row нужен для KPI «Закрыто вакансий»: считаем только закрытые,
+    // реально присутствующие в листе Data (google_sheet_row IS NOT NULL). Это
+    // фильтрует CSV-«фантомы» (остатки откатанного hh-csv auto-create, commit
+    // 4c64f1c → rollback 2243fbe). Для active/funnel/cities.active фильтр НЕ
+    // применяется — там фантомы пока остаются (см. dashboard/team revert 87b8c77).
     let vacancyQuery = supabase
       .from('vacancies')
       .select(
-        'id, title, subdivision, location, status, days_to_close, opened_at, closed_at, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
+        'id, title, subdivision, location, status, days_to_close, opened_at, closed_at, google_sheet_row, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
       );
     if (subdivisionFilter) vacancyQuery = vacancyQuery.eq('subdivision', subdivisionFilter);
     const { data: vacancies, error: vacError } = await vacancyQuery;
@@ -125,14 +130,16 @@ export async function GET(request: NextRequest) {
     }
 
     // «Закрыто вакансий» — источник = vacancies.closed_at за выбранный period
-    // (Sheets-side: vacancy.status='closed' AND closed_at ∈ [from, to]).
+    // (Sheets-side: vacancy.status='closed' AND closed_at ∈ [from, to]) и
+    // google_sheet_row IS NOT NULL (только реальные из листа Data, без фантомов).
     const hiredByVacancy = new Map<string, number>();
     for (const v of vacancies ?? []) {
       if (
         v.status === 'closed' &&
         v.closed_at &&
         v.closed_at >= from &&
-        v.closed_at <= to
+        v.closed_at <= to &&
+        v.google_sheet_row !== null
       ) {
         hiredByVacancy.set(v.id, (hiredByVacancy.get(v.id) ?? 0) + 1);
       }
@@ -151,7 +158,12 @@ export async function GET(request: NextRequest) {
     const divisions = Array.from(groups.entries()).map(([subdivision, vacs]) => {
       const list = vacs ?? [];
       const closedInPeriod = list.filter(
-        (v) => v.status === 'closed' && v.closed_at && v.closed_at >= from && v.closed_at <= to,
+        (v) =>
+          v.status === 'closed' &&
+          v.closed_at &&
+          v.closed_at >= from &&
+          v.closed_at <= to &&
+          v.google_sheet_row !== null,
       );
       const closeDays = closedInPeriod
         .map((v) => v.days_to_close)
@@ -210,7 +222,8 @@ export async function GET(request: NextRequest) {
           v.status === 'closed' &&
           v.closed_at &&
           v.closed_at >= from &&
-          v.closed_at <= to
+          v.closed_at <= to &&
+          v.google_sheet_row !== null
         ) {
           cur.closed += 1;
         }
