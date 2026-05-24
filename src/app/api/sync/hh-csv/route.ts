@@ -197,6 +197,11 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      console.log(
+        'snapshots written:', snapshotsWritten,
+        'skipped no vacancy:', matchedNoVacancy,
+      );
+
       await logSync(db, user.id, rows.length, matched, 'ok');
       return apiSuccess({
         data: {

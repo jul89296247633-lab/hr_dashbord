@@ -112,8 +112,10 @@ export async function GET(request: NextRequest) {
     }));
 
     // ── Индекс компании = weighted average (вес = responses_received) ────────
-    // Берём только менеджеров с непустым politeness_index. Если ни у кого нет
-    // откликов (все веса = 0) — fallback на простое среднее.
+    // Берём только менеджеров с politeness_index > 0 (нулевое значение HH ставит
+    // когда у менеджера за период нет действий — это «нет данных», а не «реально
+    // 0%»; учитывать такие нули в среднем неинформативно). Если ни у кого из
+    // оставшихся нет откликов (все веса = 0) — fallback на простое среднее.
     let companyPoliteness: number | null = null;
     let companyResponses = 0;
     let companyViewed = 0;
@@ -123,7 +125,7 @@ export async function GET(request: NextRequest) {
 
     const weighted: { pi: number; w: number }[] = [];
     for (const m of managers) {
-      if (m.politeness_index === null) continue;
+      if (m.politeness_index === null || m.politeness_index <= 0) continue;
       const w = m.responses_received ?? 0;
       weighted.push({ pi: m.politeness_index, w });
       companyResponses += m.responses_received ?? 0;
