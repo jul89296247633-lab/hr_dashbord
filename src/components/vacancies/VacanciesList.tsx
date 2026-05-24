@@ -47,7 +47,21 @@ interface VacancyRow {
   location: string | null;
   status: string;
   opened_at: string;
+  closed_at: string | null;
   manager?: { id: string; full_name: string; is_active?: boolean } | null;
+}
+
+/**
+ * «Дней в работе»: для активных — от opened_at до сегодня,
+ * для закрытых — от opened_at до closed_at. Считаем по календарным дням,
+ * без учёта выходных (тот же подход, что и days_to_close в БД).
+ */
+function daysInWork(openedAt: string, closedAt: string | null): number | null {
+  const start = new Date(`${openedAt}T00:00:00`);
+  const end = closedAt ? new Date(`${closedAt}T00:00:00`) : new Date();
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const ms = end.getTime() - start.getTime();
+  return Math.max(0, Math.round(ms / 86_400_000));
 }
 
 const PER_PAGE = 20;
@@ -143,6 +157,7 @@ export function VacanciesList({ role }: { role: Role }) {
                 {showManager && <TableHead>Менеджер</TableHead>}
                 <TableHead>Статус</TableHead>
                 <TableHead>Открыта</TableHead>
+                <TableHead className="text-right">Дней в работе</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -172,6 +187,12 @@ export function VacanciesList({ role }: { role: Role }) {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {new Date(`${v.opened_at}T00:00:00`).toLocaleDateString('ru-RU')}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-right tabular-nums">
+                    {(() => {
+                      const d = daysInWork(v.opened_at, v.closed_at);
+                      return d === null ? '—' : `${d} д.`;
+                    })()}
                   </TableCell>
                 </TableRow>
               ))}
