@@ -184,7 +184,11 @@ export async function POST() {
       const customerName = (row.values['ФИО Заказчика'] ?? '').trim() || null;
       const positionsCount = pickPositiveInt(row.values['Кол-во']) ?? 1;
       const openedAt = parseSheetDate(row.values['Дата открытия'] ?? '');
-      const closedDate = parseSheetDate(row.values['Дата закрытия'] ?? '');
+      // Fallback по колонке «Месяц закрытия» — HR заполняет, когда точной
+      // даты нет. Берём последний день месяца 2026 года (см. MONTH_MAP внизу).
+      const closedDate =
+        parseSheetDate(row.values['Дата закрытия'] ?? '') ??
+        parseClosedMonth(row.values['Месяц закрытия']);
       const statusCellRaw = (row.values['Статус'] ?? '').toLowerCase().trim();
       const isClosed = statusCellRaw === 'закрыта';
       // SPEC §5.3: «стажировка» — промежуточный этап. Вакансия НЕ закрывается.
@@ -460,6 +464,23 @@ function pickPositiveInt(value: string | undefined): number | null {
   if (!raw) return null;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+const MONTH_MAP: Record<string, number> = {
+  'январь': 1, 'февраль': 2, 'март': 3, 'апрель': 4, 'май': 5, 'июнь': 6,
+  'июль': 7, 'август': 8, 'сентябрь': 9, 'октябрь': 10, 'ноябрь': 11, 'декабрь': 12,
+};
+
+/** Fallback для «Месяц закрытия»: «май» → '2026-05-31' (последний день месяца).
+ *  Год хардкод 2026 — лист Data в этом формате ведётся для текущего года. */
+function parseClosedMonth(value: string | undefined): string | null {
+  const raw = (value ?? '').toLowerCase().trim();
+  if (!raw) return null;
+  const month = MONTH_MAP[raw];
+  if (!month) return null;
+  // new Date(2026, month, 0) = последний день предыдущего месяца, т.е. месяца `month`.
+  const lastDay = new Date(2026, month, 0).getDate();
+  return `2026-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }
 
 // (transliterate / emailFromName / provisionManager переехали в
