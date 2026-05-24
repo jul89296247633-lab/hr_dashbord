@@ -189,7 +189,12 @@ export async function POST() {
       const isClosed = statusCellRaw === 'закрыта';
       // SPEC §5.3: «стажировка» — промежуточный этап. Вакансия НЕ закрывается.
       const isProbation = statusCellRaw === 'стажировка';
-      const status = isClosed ? 'closed' : 'active';
+      // «приостановлена» и «предзакрыта» в листе Data → vacancies.status='paused'
+      // (промежуточные состояния, в активные вакансии не считаются, но и не
+      // закрытые). DB-енум vacancies.status поддерживает 'paused' давно.
+      const isPaused =
+        statusCellRaw === 'приостановлена' || statusCellRaw === 'предзакрыта';
+      const status = isClosed ? 'closed' : isPaused ? 'paused' : 'active';
 
       // «Менеджеры»: «Иванов И.И., Петров П.П.» → берём первого.
       const managersRaw = (row.values['Менеджеры'] ?? '').trim();
