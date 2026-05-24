@@ -102,21 +102,36 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Найм/стажёры по вакансиям за период.
-    const { data: hired, error: hiredError } = await supabase
+    // Стажёры по вакансиям за период — остаются через hired_employees
+    // (status='probation'), это отдельный промежуточный этап SPEC §5.3.
+    const { data: interns, error: internsError } = await supabase
       .from('hired_employees')
-      .select('vacancy_id, employment_type, hired_date')
+      .select('vacancy_id, hired_date')
       .in('vacancy_id', vacancyIds)
+      .eq('status', 'probation')
       .gte('hired_date', from)
       .lte('hired_date', to);
-    if (hiredError) throw new ApiError(500, 'DB_ERROR', hiredError.message);
+    if (internsError) throw new ApiError(500, 'DB_ERROR', internsError.message);
 
-    const hiredByVacancy = new Map<string, number>();
     const internsByVacancy = new Map<string, number>();
-    for (const h of hired ?? []) {
+    for (const h of interns ?? []) {
       if (!h.vacancy_id) continue;
-      const target = h.employment_type === 'intern' ? internsByVacancy : hiredByVacancy;
-      target.set(h.vacancy_id, (target.get(h.vacancy_id) ?? 0) + 1);
+      internsByVacancy.set(h.vacancy_id, (internsByVacancy.get(h.vacancy_id) ?? 0) + 1);
+    }
+
+    // «Закрыто вакансий» — источник = vacancies.closed_at (а не hired_employees,
+    // см. диагностику 56 vs 22). EC-03 автозакрытия через hh-csv в hired_employees
+    // не пишутся, поэтому считаем напрямую по vacancies.
+    const hiredByVacancy = new Map<string, number>();
+    for (const v of vacancies ?? []) {
+      if (
+        v.status === 'closed' &&
+        v.closed_at &&
+        v.closed_at >= from &&
+        v.closed_at <= to
+      ) {
+        hiredByVacancy.set(v.id, (hiredByVacancy.get(v.id) ?? 0) + 1);
+      }
     }
 
     // Группировка по подразделению.
