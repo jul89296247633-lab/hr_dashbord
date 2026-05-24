@@ -99,16 +99,18 @@ export async function GET(request: NextRequest) {
         // CSV-«фантомы» (созданные вне Sheets) не считаются — см. SPEC §5.3.
         .not('hh_vacancy_id', 'is', null)
         .in('manager_id', managerIds),
-      // «Закрыто вакансий» — теперь источник = vacancy_snapshots WHERE
-      // is_closed=true (поле «Закрытая»=Да из CSV) за выбранный месяц.
-      // Sheets-флаг status='closed' больше не учитывается — HH-выгрузка
-      // считается источником истины (SPEC §5.6c).
+      // «Закрыто вакансий» — источник = vacancies.closed_at (Sheets). Snapshot'ы
+      // CSV приходят с stat_date загрузки, а не с фактической датой закрытия,
+      // поэтому для фильтра «по месяцу закрытия» они не подходят. Поле
+      // is_closed в snapshots остаётся для аудита / возможного дашборда «когда
+      // HH об этом узнал».
       db
-        .from('vacancy_snapshots')
-        .select('vacancy_id, vacancy:vacancies!vacancy_snapshots_vacancy_id_fkey(manager_id)')
-        .eq('is_closed', true)
-        .gte('snapshot_at', `${month.from}T00:00:00Z`)
-        .lte('snapshot_at', `${month.to}T23:59:59Z`),
+        .from('vacancies')
+        .select('manager_id')
+        .eq('status', 'closed')
+        .in('manager_id', managerIds)
+        .gte('closed_at', month.from)
+        .lte('closed_at', month.to),
     ]);
 
     if (plansRes.error) throw new ApiError(500, 'DB_ERROR', plansRes.error.message);
@@ -146,21 +148,10 @@ export async function GET(request: NextRequest) {
       activeVacByManager.set(v.manager_id, (activeVacByManager.get(v.manager_id) ?? 0) + 1);
     }
 
-    // «Закрыто вакансий» по менеджеру за месяц через snapshots.
-    // Одна вакансия может иметь несколько snapshot'ов с is_closed=true
-    // (за разные дни) — дедупим по vacancy_id, чтобы не двойной счёт.
+    // Закрытые вакансии за период по менеджеру (источник «Закрыто вакансий»).
     const hiredByManager = new Map<string, number>();
-    const seenClosedVacancies = new Set<string>();
-    for (const row of (closedRes.data ?? []) as Array<{
-      vacancy_id: string;
-      vacancy: { manager_id: string | null } | null;
-    }>) {
-      if (seenClosedVacancies.has(row.vacancy_id)) continue;
-      seenClosedVacancies.add(row.vacancy_id);
-      const mid = row.vacancy?.manager_id;
-      if (mid && managerIds.includes(mid)) {
-        hiredByManager.set(mid, (hiredByManager.get(mid) ?? 0) + 1);
-      }
+    for (const v of closedRes.data ?? []) {
+      hiredByManager.set(v.manager_id, (hiredByManager.get(v.manager_id) ?? 0) + 1);
     }
 
     // KPI на каждого менеджера.

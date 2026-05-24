@@ -96,29 +96,17 @@ export async function GET(request: NextRequest) {
       .not('hh_vacancy_id', 'is', null);
     if (vacError) throw new ApiError(500, 'DB_ERROR', vacError.message);
 
-    // «Закрыто вакансий» — за выбранный месяц (MonthPicker) или текущий.
-    // Источник: vacancy_snapshots WHERE is_closed=true («Закрытая»=Да из CSV).
+    // «Закрыто вакансий» — vacancies WHERE status='closed' AND closed_at ∈ month.
     const month = monthWindow ?? currentMonthRange();
-    const { data: closedSnapshots, error: closedError } = await supabase
-      .from('vacancy_snapshots')
-      .select('vacancy_id, snapshot_at, vacancy:vacancies!vacancy_snapshots_vacancy_id_fkey(manager_id)')
-      .eq('is_closed', true)
-      .gte('snapshot_at', `${month.from}T00:00:00Z`)
-      .lte('snapshot_at', `${month.to}T23:59:59Z`);
+    const { data: closedThisMonth, error: closedError } = await supabase
+      .from('vacancies')
+      .select('id, closed_at')
+      .eq('manager_id', targetManagerId)
+      .eq('status', 'closed')
+      .gte('closed_at', month.from)
+      .lte('closed_at', month.to);
     if (closedError) throw new ApiError(500, 'DB_ERROR', closedError.message);
-    // Дедуп по vacancy_id и фильтр по targetManagerId.
-    const closedThisMonth = new Map<string, { snapshot_at: string }>();
-    for (const s of (closedSnapshots ?? []) as Array<{
-      vacancy_id: string;
-      snapshot_at: string;
-      vacancy: { manager_id: string | null } | null;
-    }>) {
-      if (s.vacancy?.manager_id !== targetManagerId) continue;
-      if (!closedThisMonth.has(s.vacancy_id)) {
-        closedThisMonth.set(s.vacancy_id, { snapshot_at: s.snapshot_at });
-      }
-    }
-    const hiredFact = closedThisMonth.size;
+    const hiredFact = (closedThisMonth ?? []).length;
 
     // Стажёры по-прежнему за выбранный period — это «промежуточный этап»,
     // не относится к плану/факту найма.
@@ -147,12 +135,11 @@ export async function GET(request: NextRequest) {
       hires: kpiMetric(hiredFact, plan.hires_per_month),
     };
 
-    // Найм по дням — берём snapshot_at (date только), считаем уникальные
-    // vacancy_id за день. Уже отфильтровано по targetManagerId выше.
+    // Найм по дням — мапим vacancies.closed_at.
     const hiredByDate = new Map<string, number>();
-    for (const [, info] of closedThisMonth) {
-      const day = info.snapshot_at.slice(0, 10);
-      hiredByDate.set(day, (hiredByDate.get(day) ?? 0) + 1);
+    for (const v of closedThisMonth ?? []) {
+      if (!v.closed_at) continue;
+      hiredByDate.set(v.closed_at, (hiredByDate.get(v.closed_at) ?? 0) + 1);
     }
 
     // Разбивка по дням (по дням, где есть активности).

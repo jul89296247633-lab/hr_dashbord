@@ -124,23 +124,18 @@ export async function GET(request: NextRequest) {
       internsByVacancy.set(h.vacancy_id, (internsByVacancy.get(h.vacancy_id) ?? 0) + 1);
     }
 
-    // «Закрыто вакансий» — источник = vacancy_snapshots.is_closed («Закрытая»=Да
-    // из CSV) за выбранный period. Дедуп по vacancy_id (одна вакансия может
-    // иметь несколько closed-snapshot'ов за разные дни).
-    const { data: closedSnapshots, error: closedSnapError } = await supabase
-      .from('vacancy_snapshots')
-      .select('vacancy_id, snapshot_at')
-      .in('vacancy_id', vacancyIds)
-      .eq('is_closed', true)
-      .gte('snapshot_at', `${from}T00:00:00Z`)
-      .lte('snapshot_at', `${to}T23:59:59Z`);
-    if (closedSnapError) throw new ApiError(500, 'DB_ERROR', closedSnapError.message);
+    // «Закрыто вакансий» — источник = vacancies.closed_at за выбранный period
+    // (Sheets-side: vacancy.status='closed' AND closed_at ∈ [from, to]).
     const hiredByVacancy = new Map<string, number>();
-    const seenClosed = new Set<string>();
-    for (const s of closedSnapshots ?? []) {
-      if (seenClosed.has(s.vacancy_id)) continue;
-      seenClosed.add(s.vacancy_id);
-      hiredByVacancy.set(s.vacancy_id, 1);
+    for (const v of vacancies ?? []) {
+      if (
+        v.status === 'closed' &&
+        v.closed_at &&
+        v.closed_at >= from &&
+        v.closed_at <= to
+      ) {
+        hiredByVacancy.set(v.id, (hiredByVacancy.get(v.id) ?? 0) + 1);
+      }
     }
 
     // Группировка по подразделению.
