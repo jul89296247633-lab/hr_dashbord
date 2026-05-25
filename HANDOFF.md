@@ -1,6 +1,6 @@
 # HANDOFF — HR Control Tower
 
-> Сводка состояния проекта. Обновлено: **2026-05-24 (поздний вечер)**.
+> Сводка состояния проекта. Обновлено: **2026-05-25 (ночь)**.
 > Источник истины — `SPEC.md`. Правила команды — `CLAUDE.md`.
 > Стек: Next.js 15 (App Router, `src/`), TypeScript, Tailwind v4, shadcn/ui, Supabase PG17, Zod.
 
@@ -10,29 +10,41 @@
 
 ## 🔥 Что делать первым в следующей сессии
 
-**Текущее состояние:** воронка вакансий ожила, бонусы переключены на `vacancies`,
-KPI «Звонки» взяты из тех же snapshots что и воронка, фантомы (116 строк, остатки
-откатанного hh-csv auto-create — см. ниже) изолированы фильтром `google_sheet_row
-IS NOT NULL` во всех KPI-дашбордах и в бонусном RPC. **Удалять фантомов из БД
-НЕ НАДО** (пользователь решил оставить для аудита).
+**Главное изменение в этой сессии — модель upsert для `vacancies` переписана:**
+теперь **`google_sheet_row` — единственный ключ дедупа** в `sheets-sync`. Никаких
+lookup'ов по `hh_vacancy_id` или `(title, manager_id, opened_at)`. Каждая строка
+листа Data ↔ ровно одна запись в БД. Это потребовало снять UNIQUE на
+`hh_vacancy_id` и partial UNIQUE на `(title, manager_id, opened_at)` — иначе
+INSERT'ы с совпадающими полями (Sheet-row vs фантом) валились 23505. После
+cleanup'а 15 групп дублей `google_sheet_row` — в БД 93 Sheet-row + 129 фантомов.
+
+**Фильтр `google_sheet_row IS NOT NULL` оставлен только в /divisions** для
+подсчёта закрытых и бонусном RPC уже **снят** — теперь бонусы считаются по
+ВСЕМ `vacancies WHERE status='closed' AND closed_at ∈ period`. На дашбордах
+team/me/manager фильтр google_sheet_row тоже снят (active вернулась к
+`hh_vacancy_id IS NOT NULL`, closed — без фильтра).
 
 **Что ждёт пользователя (внешняя работа, не код):**
 
-1. **Добавить 43 фантомные «закрытые» вакансии за май в лист «Data» вручную**
-   (список выгружен в последней сессии: `title + hh_vacancy_id + closed_at`).
-   После добавления + sheets-sync им проставится `google_sheet_row` и они
-   автоматически появятся в KPI «Закрыто вакансий» + бонусах за май. **Сейчас
-   май показывает 0 закрытых** — это корректно, реально в листе Data за май пусто.
-2. **Проверить 2 строки с латинскими омоглифами в названии** перед добавлением
-   в Sheets: `132437096` (Cпециалист — латинская C), `132436528` (удaлeннo —
-   латинские a/e/n/o), `131824921` (YАMAGUCHI — кириллическая А). Иначе
-   fuzzy-match по `bonus_rates` снова не сработает.
+1. **Запустить `/sync` → проверить новую модель upsert.** Если упадёт с UNIQUE
+   violation — пришли скриншот, разберём. Уже сняты `vacancies_hh_vacancy_id_key`
+   и `uq_vacancies_title_manager_opened_no_hh`; остался только нужный
+   `vacancies_google_sheet_row_idx`.
+2. **Добавить колонку «Приоритет» в лист Data** (если ещё нет) с одним из значений
+   `высокий` / `средний` / `низкий`. Парсер `sheets/route.ts` уже умеет, поле
+   `vacancies.priority` уже есть в БД (миграция `20260524190000`). UI `/vacancies`
+   показывает индикатор: цветной текст «Дней в работе» + ⚠️ по эскалации.
+3. **Добавить колонку «Месяц закрытия»** для закрытых без точной даты (русское
+   название месяца, год хардкод 2026). Fallback в `sheets/route.ts` уже есть
+   (коммит `89f2b30`).
+4. **Добавить 43 фантомные «закрытые» вакансии за май в лист «Data»** — список
+   выгружался в предыдущей сессии. После добавления + sheets-sync они появятся
+   в KPI и бонусах. **Сейчас в БД по-прежнему 0 закрытых из листа Data.**
 
-**Возможная следующая код-задача (не обязательно):** если после загрузки в Sheets
-обнаружатся новые позиции вне каталога тарифов (например, «Руководитель филиала»,
-«Территориальный директор», «Старший логист-кладовщик») — добавить их в
-`bonus_rates` через миграцию-`INSERT ... ON CONFLICT DO UPDATE` по образцу
-`20260524150000_bonus_rates_aliases_cleanup.sql`.
+**Возможная следующая код-задача:** /api/vacancies `POST` ловил `23505` на
+дубликат `hh_vacancy_id` и возвращал `HH_VACANCY_ID_EXISTS 409` — после dropа
+UNIQUE этот handler не сработает. Если ручное создание используется и защита
+нужна — переделать на pre-check (`.maybeSingle()` по `hh_vacancy_id` перед INSERT).
 
 ---
 
@@ -64,25 +76,31 @@ IS NOT NULL` во всех KPI-дашбордах и в бонусном RPC. **
 | `20260524140000_seed_bonus_rates_full` | Полный каталог из листа «Бонусы_HR»: 58 позиций в 6 группах. |
 | `20260524150000_bonus_rates_aliases_cleanup` | +8 алиасов (Продавец-консультант, Хостес/администратор, и т.п.); удаление 3 orphan'ов от первого seed. |
 | `20260524170000_compute_manager_bonuses_exclude_phantoms` | RPC: добавлен фильтр `v.google_sheet_row IS NOT NULL` — фантомы не дают бонусы. |
+| `20260524180000_compute_manager_bonuses_drop_sheet_row_filter` | **Откат фильтра 20260524170000**: RPC снова считает по ВСЕМ `vacancies WHERE status='closed' AND closed_at ∈ period` без `google_sheet_row IS NOT NULL`. |
+| `20260524190000_vacancies_priority` | `+priority TEXT CHECK IN ('высокий','средний','низкий')`, nullable. |
+| `20260524200000_vacancies_google_sheet_row_unique_key` | **3 шага:** (1) cleanup 15 групп дублей `google_sheet_row` (старые → NULL = фантомы); (2) DROP UNIQUE `vacancies_hh_vacancy_id_key`; (3) CREATE UNIQUE INDEX `vacancies_google_sheet_row_idx` WHERE NOT NULL. Singular key для sheets-sync. |
+| `20260524210000_drop_vacancies_title_manager_opened_unique` | DROP `uq_vacancies_title_manager_opened_no_hh` (мешал INSERT'ам новой модели). |
 
-Типы `src/types/database.ts` синхронизированы.
+Типы `src/types/database.ts` синхронизированы (включая `priority`).
 
 ### API
 - `dashboard/team`, `dashboard/manager`, `dashboard/me`, `dashboard/divisions`,
   `stats/politeness` — все принимают `?month=YYYY-MM` (MonthPicker).
   `team`/`manager`/`me` считают «Закрыто вакансий» через
-  `vacancies WHERE status='closed' AND closed_at ∈ month AND google_sheet_row IS NOT NULL`.
-  План «Закрыто вакансий» на /dashboard скрыт (sum-of-defaults давал 300).
-- **«Активные вакансии»** на всех дашбордах фильтруются
-  `status='active' AND google_sheet_row IS NOT NULL` (вместо старого
-  `hh_vacancy_id IS NOT NULL` — он не отсеивал фантомов: у фантомов есть hh_id).
-- `divisions` — фильтр `.not('google_sheet_row', 'is', null)` на исходном
-  SELECT vacancies → фильтрует все подразделенческие агрегаты (active /
-  closed_in_period / cities / funnel).
-- `bonuses/` — RPC `compute_manager_bonuses` за текущий месяц.
-  Источник = `vacancies WHERE status='closed' AND closed_at ∈ month AND
-  google_sheet_row IS NOT NULL`. Fuzzy-match по `bonus_rates.position_name`
-  vs `vacancies.title`, threshold 0.4. 61 тариф в каталоге.
+  `vacancies WHERE status='closed' AND closed_at ∈ month` (**без** фильтра
+  `google_sheet_row IS NOT NULL` — снят в коммите `87b8c77`, фантомы попадают).
+- **«Активные вакансии»** на team/me/manager — фильтр `status='active' AND
+  hh_vacancy_id IS NOT NULL` (вернулось в `87b8c77`; фантомы попадают, т.к.
+  у них есть hh_id). НЕ путать с фильтром `google_sheet_row` — он применяется
+  только в `/divisions` для подсчёта закрытых.
+- `divisions` (коммит `3e85d56`) — фильтр `v.google_sheet_row !== null`
+  **только** на 3 точках подсчёта закрытых (hiredByVacancy / closedInPeriod /
+  cityAcc.closed). Active/funnel/cities.active фильтр НЕ применяется. SELECT
+  включает `google_sheet_row`.
+- `bonuses/` — RPC `compute_manager_bonuses` за текущий месяц. Источник =
+  `vacancies WHERE status='closed' AND closed_at ∈ month` (**без** фильтра
+  google_sheet_row — снят миграцией `20260524180000`). Fuzzy-match по
+  `bonus_rates.position_name` vs `vacancies.title`, threshold 0.4. 61 тариф.
 - **KPI «Звонки»** в `dashboard/team` берёт `SUM(calls_count) FROM vacancy_snapshots`
   (последний snapshot per vacancy, group by manager) — тот же источник, что
   и воронка в `divisions`. `daily_activities.{mango,hh}_calls_count` для KPI
@@ -115,9 +133,17 @@ IS NOT NULL` во всех KPI-дашбордах и в бонусном RPC. **
   ИВ-карточка: 5 метрик включая 💰 Просмотры (поиск) / 💰 Приглашения из базы.
 - `/dashboard/divisions` — раскрытая карточка с городами + «Закрыто вакансий
   за период».
-- `/vacancies` — колонки «Город» (между «Подразделение» и «Менеджер») и
-  **«Дней в работе»** (после «Открыта»): активные `today − opened_at`,
-  закрытые `closed_at − opened_at`, формат `«23 д.»`.
+- `/vacancies` — колонки «Город» (между «Подразделение» и «Менеджер»),
+  **«Дней в работе»** (после «Открыта»: формат `«23 д.»`). **NEW в этой
+  сессии:**
+  - **Цвет числа «Дней в работе»** по эскалации (`priority` × `days`):
+    низкий → серый без иконки; >30 дней → red + ⚠️; высокий + >14 → red + ⚠️;
+    средний/null + >14 → amber + ⚠️.
+  - **Клик-сортировка по любому заголовку** (Название / Подразделение / Город /
+    Менеджер / Статус / Открыта / Дней в работе). Дефолт `opened_at` DESC,
+    смена поля → asc, повторный клик → toggle. Сортируется текущая страница
+    (20 строк), не весь набор. Стрелка `ChevronUp/Down` только на активном поле.
+  - Название — `max-w-50 truncate` + native `title=` tooltip.
 - `/bonuses` — таблица «Менеджер | Вакансия | Тариф | Сумма», группировка
   по менеджеру с sub-total и grand-total; «Тариф не задан» курсивом если
   fuzzy < 0.4.
@@ -130,7 +156,13 @@ IS NOT NULL` во всех KPI-дашбордах и в бонусном RPC. **
 ### Sync — особенности
 - Sheets «HR_менеджеры» и Data — авто-создание `auth.users` через
   `lib/auto-provision.ts`. Идемпотентно через email-lookup.
-- Sheets дедуп вакансий по `(title, manager_id, opened_at)` с partial UNIQUE INDEX.
+- **Sheets дедуп вакансий = `google_sheet_row` (singular key, коммит `9f32f61`).**
+  Двухшаговый UPDATE-then-INSERT (supabase-js не умеет ON CONFLICT с partial
+  UNIQUE INDEX). Старые ключи дедупа (`hh_vacancy_id`, `(title, manager_id,
+  opened_at)`) больше не используются.
+- **Sheets-sync парсит:** «Приоритет» (`высокий`/`средний`/`низкий` → `priority`,
+  всё иное → NULL) и «Месяц закрытия» (русское название месяца → последний день
+  месяца 2026 как fallback для `closed_at`, если «Дата закрытия» пуста).
 - Sheets headers с алиасами (location: «Населённый пункт» / «Город» / ...).
 - HH-csv matcher для менеджеров: id → exact → first_two_words → fuzzy → auto-create.
 
@@ -180,16 +212,21 @@ IS NOT NULL` во всех KPI-дашбордах и в бонусном RPC. **
 13. Стажировка — 7-й этап воронки (`hired_employees.status='probation'`, вакансия `active`).
 14. Город `vacancies.location` — отдельная колонка.
 15. Платные/бесплатные HH действия разделены в `hh_manager_stats`.
-16. Дедуп вакансий из Sheets — ключ `(title, manager_id, opened_at)`.
+16. **Дедуп вакансий из Sheets — singular key `google_sheet_row`** (миграция
+    `20260524200000`). Старые UNIQUE на `hh_vacancy_id` и
+    `(title, manager_id, opened_at) WHERE hh_id IS NULL` сняты.
 17. **«Закрыто вакансий» — всегда за полный текущий календарный месяц** во ВСЕХ
     API (`team`, `manager`, `me`, `divisions`). Источник = `vacancies.closed_at`.
 18. **Sheets статусы:** `закрыта→closed`, `стажировка→active+probation`,
     `приостановлена`/`предзакрыта` → `paused`.
-19. **«Активные вакансии»** и **«Закрыто вакансий»** на ВСЕХ дашбордах
-    (`team`/`me`/`manager`/`divisions`) фильтруются `google_sheet_row IS NOT NULL`
-    — единый признак «реальная вакансия из листа Data». Раньше фильтр был по
-    `hh_vacancy_id IS NOT NULL`, но он не отсеивал CSV-фантомов (у них hh_id
-    есть, нет только `google_sheet_row`). Бонусный RPC использует тот же фильтр.
+19. **Фильтры KPI после серии откатов** (актуально на 2026-05-25):
+    - `team`/`me`/`manager` «Активные»: `status='active' AND hh_vacancy_id IS NOT NULL`
+      (фантомы попадают — у них есть hh_id).
+    - `team`/`me`/`manager` «Закрыто»: `status='closed' AND closed_at ∈ month`
+      без доп. фильтра.
+    - `divisions` «Закрыто за период»: те же условия + `google_sheet_row IS NOT NULL`
+      (только в этом одном дашборде).
+    - Бонусный RPC: без фильтра google_sheet_row (миграция `20260524180000`).
 20. **Воронка дашборда** полностью из `vacancy_snapshots`:
     Отклики / **Контакты** = invitations_from_responses (бесплатно) /
     **Приглашения** = invitations_from_db (платно ⓟ) / Звонки = calls_count.
@@ -201,18 +238,38 @@ IS NOT NULL` во всех KPI-дашбордах и в бонусном RPC. **
 23. **Lock-period:** `vacancy_snapshots.is_locked`. POST `/api/sync/lock-period`
     фиксирует месяц; hh-csv с историческим `stat_date` пропускает locked.
 24. **Бонусы:** RPC `compute_manager_bonuses` читает `vacancies.closed_at`
-    (не `hired_employees`), threshold pg_trgm 0.4 (не 0.6), filter
-    `google_sheet_row IS NOT NULL` (исключает фантомов). В каталоге `bonus_rates`
-    61 тариф (6 групп: Розница / Офис / Маркетинг / IT / Склад / B2B + алиасы).
-25. **CSV-«фантомы»** (116 вакансий: 50 closed + 66 active без google_sheet_row,
-    но с hh_vacancy_id) — остатки откатанного hh-csv auto-create (commit
-    `4c64f1c` → rollback `2243fbe`). **Оставлены в БД для аудита**, но
-    исключены из всех KPI через `google_sheet_row IS NOT NULL`.
+    (не `hired_employees`), threshold pg_trgm 0.4 (не 0.6). **Фильтр
+    `google_sheet_row IS NOT NULL` снят** миграцией `20260524180000` — фантомы
+    тоже дают бонусы. В каталоге `bonus_rates` 61 тариф (6 групп: Розница /
+    Офис / Маркетинг / IT / Склад / B2B + алиасы).
+25. **CSV-«фантомы»** (после cleanup'а — 129 вакансий: ~50 closed + ~66 active
+    + 13 от cleanup'а дублей `google_sheet_row`). Все с `google_sheet_row IS NULL`,
+    с `hh_vacancy_id`. Остатки откатанного hh-csv auto-create (commit `4c64f1c`
+    → rollback `2243fbe`). **Оставлены в БД для аудита.** Сейчас попадают в
+    KPI «Закрыто» / «Активные» на большинстве дашбордов (фильтр снят), кроме
+    `divisions.closed_in_period` где остался.
+26. **Колонка `vacancies.priority`** (миграция `20260524190000`) — nullable
+    TEXT с CHECK in ('высокий','средний','низкий'). Заполняется sheets-sync'ом
+    из колонки «Приоритет» листа Data. UI `/vacancies` использует для цветной
+    эскалации в колонке «Дней в работе».
 
 ---
 
-## 📝 Последние коммиты этой сессии
+## 📝 Последние коммиты этой сессии (2026-05-25)
 
+```
+340cd76 fix(sheets): drop partial UNIQUE (title, manager_id, opened_at) → разблокировал sync
+9f32f61 refactor(sheets): единственный ключ upsert = google_sheet_row
+d4ca13c feat(vacancies): клиентская сортировка по клику на заголовок
+3e85d56 fix(divisions): «Закрыто за период» = только из листа Data
+6c80222 feat(vacancies): «Дней в работе» — цветной текст + ⚠️ по приоритету и сроку
+7876ac9 feat(sheets): парсинг колонки «Приоритет» из листа Data → vacancies.priority
+55c5ac4 feat(vacancies): priority indicator + truncate title
+89f2b30 feat(sheets,bonuses): «Месяц закрытия» fallback + drop sheet_row filter в RPC
+87b8c77 revert(dashboard): откат фильтра google_sheet_row IS NOT NULL (9731f19)
+```
+
+### Предыдущая сессия (2026-05-24)
 ```
 ba3b1b3 fix(bonuses): exclude phantoms from compute_manager_bonuses RPC
 9731f19 fix(dashboard): exclude phantoms via google_sheet_row IS NOT NULL
