@@ -25,3 +25,9 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+.vercel
+.env*
+~$*.pptx
+~$*.docx
+~$*.xlsx
