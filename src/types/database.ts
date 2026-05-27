@@ -626,6 +626,47 @@ export type Database = {
           },
         ];
       };
+      staffing_plan: {
+        Row: {
+          id: string;
+          city: string;
+          position_name: string;
+          planned_units: number;
+          comment: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          city: string;
+          position_name: string;
+          planned_units: number;
+          comment?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          city?: string;
+          position_name?: string;
+          planned_units?: number;
+          comment?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'staffing_plan_created_by_fkey';
+            columns: ['created_by'];
+            isOneToOne: false;
+            referencedRelation: 'user_profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       staffing_records: {
         Row: {
           id: string;
@@ -860,6 +901,24 @@ export type Database = {
           rate_position_name: string | null;
           amount_kopecks: number | null;
           similarity_score: number | null;
+        }[];
+      };
+      compute_staffing_plan: {
+        Args: {
+          p_city?: string | null;
+          p_threshold?: number;
+        };
+        Returns: {
+          id: string;
+          city: string;
+          position_name: string;
+          planned_units: number;
+          comment: string | null;
+          created_at: string;
+          updated_at: string;
+          occupied: number;
+          in_progress: number;
+          vacant: number;
         }[];
       };
     };

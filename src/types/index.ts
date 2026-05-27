@@ -102,6 +102,27 @@ export interface VacancyListItem extends Vacancy {
   manager: { id: string; full_name: string; is_active?: boolean } | null;
 }
 
+// ── Штатное расписание (staffing_plan, FEATURE_SPEC_staffing_plan.md) ──────
+/** Строка штатного расписания + derived заполненность из RPC compute_staffing_plan. */
+export interface StaffingPlanRow {
+  id: string;
+  city: string;
+  position_name: string;
+  planned: number;
+  occupied: number;
+  in_progress: number;
+  vacant: number;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Ответ GET /api/staffing/availability?location=<city>. */
+export interface StaffingAvailabilityResponse {
+  location: string;
+  rows: Array<Pick<StaffingPlanRow, 'position_name' | 'planned' | 'occupied' | 'in_progress' | 'vacant'>>;
+}
+
 export interface VacancySnapshot {
   id: string;
   vacancy_id: string;

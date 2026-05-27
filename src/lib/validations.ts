@@ -142,6 +142,40 @@ export const staffingCreateSchema = z.object({
 });
 export type StaffingCreateInput = z.infer<typeof staffingCreateSchema>;
 
+// ── Staffing Plan (штатное расписание) ───────────────────────────────────────
+// Не путать со staffingCreateSchema (укомплектованность). См. FEATURE_SPEC_staffing_plan.md.
+
+/** Тело POST /api/staffing/plan (upsert по UNIQUE(city, position_name)). */
+export const staffingPlanUpsertSchema = z.object({
+  city: z
+    .string()
+    .trim()
+    .min(2, 'Город — минимум 2 символа')
+    .max(100, 'Город — максимум 100 символов'),
+  position_name: z
+    .string()
+    .trim()
+    .min(2, 'Должность — минимум 2 символа')
+    .max(200, 'Должность — максимум 200 символов'),
+  planned_units: z
+    .number({ invalid_type_error: 'Ожидается целое число от 0 до 999' })
+    .int('Ожидается целое число')
+    .min(0, 'Не может быть отрицательным')
+    .max(999, 'Максимум 999'),
+  comment: z.string().max(500, 'Комментарий не длиннее 500 символов').nullable().optional(),
+});
+export type StaffingPlanUpsertInput = z.infer<typeof staffingPlanUpsertSchema>;
+
+/** Query GET /api/staffing/availability — расчёт по одному городу. */
+export const staffingAvailabilityQuerySchema = z.object({
+  location: z
+    .string()
+    .trim()
+    .min(2, 'Город — минимум 2 символа')
+    .max(100, 'Город — максимум 100 символов'),
+});
+export type StaffingAvailabilityQuery = z.infer<typeof staffingAvailabilityQuerySchema>;
+
 // ── Sync ─────────────────────────────────────────────────────────────────────
 /** Query GET /api/sync/logs. */
 export const syncLogsQuerySchema = z.object({
