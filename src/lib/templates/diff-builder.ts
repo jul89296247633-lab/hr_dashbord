@@ -102,7 +102,12 @@ function normalizeHhId(raw: string): string | null {
 }
 
 function parseAmount(raw: string): number | null {
-  const cleaned = raw.replace(/\s/g, '').replace(',', '.').replace('₽', '').replace('руб', '').trim();
+  const cleaned = raw
+    .replace(/\s/g, '')       // пробелы-разделители тысяч
+    .replace(/₽/g, '')        // знак рубля (global)
+    .replace(/руб\.?/gi, '')  // «руб» / «руб.» (global, любой регистр)
+    .replace(/,/g, '.')       // запятая → точка (global, после удаления тысячных)
+    .trim();
   const n = Number.parseFloat(cleaned);
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round(n * 100); // → kopecks
@@ -391,9 +396,14 @@ export async function buildStaffingPlanDiff(
     const v = parsed.data;
     const warnings: string[] = [];
 
-    const plannedUnits = parseInt(v['Кол-во единиц'].replace(/\s/g, ''), 10);
-    if (!Number.isInteger(plannedUnits) || plannedUnits < 0 || plannedUnits > 999) {
+    const rawUnits = v['Кол-во единиц'].replace(/\s/g, '');
+    if (!/^\d+$/.test(rawUnits)) {
       errors.push({ sheet: 'Штатное расписание', row: rowNumber, column: 'Кол-во единиц', reason: `Должно быть целым числом от 0 до 999, получено: «${v['Кол-во единиц']}»` });
+      continue;
+    }
+    const plannedUnits = parseInt(rawUnits, 10);
+    if (plannedUnits < 0 || plannedUnits > 999) {
+      errors.push({ sheet: 'Штатное расписание', row: rowNumber, column: 'Кол-во единиц', reason: `Должно быть от 0 до 999, получено: ${plannedUnits}` });
       continue;
     }
 

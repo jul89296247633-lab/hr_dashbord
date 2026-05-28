@@ -110,7 +110,7 @@ export type Database = {
           positions_count?: number | null;
           manager_id?: string | null;
           status?: string;
-          confidentiality?: string;
+          confidentiality?: 'open' | 'confidential';
           opened_at?: string;
           closed_at?: string | null;
           google_sheet_row?: number | null;
@@ -130,7 +130,7 @@ export type Database = {
           positions_count?: number | null;
           manager_id?: string | null;
           status?: string;
-          confidentiality?: string;
+          confidentiality?: 'open' | 'confidential';
           opened_at?: string;
           closed_at?: string | null;
           google_sheet_row?: number | null;
