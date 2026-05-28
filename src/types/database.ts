@@ -101,14 +101,16 @@ export type Database = {
         Insert: {
           id?: string;
           hh_vacancy_id?: string | null;
+          internal_ref?: string | null;
           title: string;
           department?: string | null;
           subdivision?: string | null;
           location?: string | null;
           customer_name?: string | null;
           positions_count?: number | null;
-          manager_id: string;
+          manager_id?: string | null;
           status?: string;
+          confidentiality?: string;
           opened_at?: string;
           closed_at?: string | null;
           google_sheet_row?: number | null;
@@ -119,14 +121,16 @@ export type Database = {
         Update: {
           id?: string;
           hh_vacancy_id?: string | null;
+          internal_ref?: string | null;
           title?: string;
           department?: string | null;
           subdivision?: string | null;
           location?: string | null;
           customer_name?: string | null;
           positions_count?: number | null;
-          manager_id?: string;
+          manager_id?: string | null;
           status?: string;
+          confidentiality?: string;
           opened_at?: string;
           closed_at?: string | null;
           google_sheet_row?: number | null;
@@ -854,6 +858,65 @@ export type Database = {
           {
             foreignKeyName: 'error_logs_resolved_by_fkey';
             columns: ['resolved_by'];
+            isOneToOne: false;
+            referencedRelation: 'user_profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      template_uploads: {
+        Row: {
+          id: string;
+          uploaded_by: string;
+          template_type: string;
+          file_name: string;
+          file_hash: string | null;
+          rows_total: number;
+          rows_inserted: number;
+          rows_updated: number;
+          rows_skipped: number;
+          rows_error: number;
+          status: string;
+          error_report: Json | null;
+          preview_data: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          uploaded_by: string;
+          template_type: string;
+          file_name: string;
+          file_hash?: string | null;
+          rows_total?: number;
+          rows_inserted?: number;
+          rows_updated?: number;
+          rows_skipped?: number;
+          rows_error?: number;
+          status?: string;
+          error_report?: Json | null;
+          preview_data?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          uploaded_by?: string;
+          template_type?: string;
+          file_name?: string;
+          file_hash?: string | null;
+          rows_total?: number;
+          rows_inserted?: number;
+          rows_updated?: number;
+          rows_skipped?: number;
+          rows_error?: number;
+          status?: string;
+          error_report?: Json | null;
+          preview_data?: Json;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'template_uploads_uploaded_by_fkey';
+            columns: ['uploaded_by'];
             isOneToOne: false;
             referencedRelation: 'user_profiles';
             referencedColumns: ['id'];
