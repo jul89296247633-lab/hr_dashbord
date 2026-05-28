@@ -6,6 +6,7 @@ import {
   TrendingUp,
   Building2,
   Target,
+  ClipboardList,
   RefreshCw,
   Sparkles,
   Users,
@@ -36,6 +37,7 @@ export function navItemsForRole(role: Role): NavItem[] {
     return [
       { label: 'Дашборд', href: '/dashboard', icon: LayoutDashboard },
       { label: 'Подразделения', href: '/dashboard/divisions', icon: Building2 },
+      { label: 'Штатное расписание', href: '/staffing/plan', icon: ClipboardList },
     ];
   }
 
@@ -46,6 +48,7 @@ export function navItemsForRole(role: Role): NavItem[] {
     { label: 'Подразделения', href: '/dashboard/divisions', icon: Building2 },
     { label: 'Вакансии', href: '/vacancies', icon: Briefcase },
     { label: 'План', href: '/plan', icon: Target },
+    { label: 'Штатное расписание', href: '/staffing/plan', icon: ClipboardList },
     { label: 'Синхронизация', href: '/sync', icon: RefreshCw },
     { label: 'AI', href: '/ai', icon: Sparkles },
     { label: 'Бонусы', href: '/bonuses', icon: Wallet },
