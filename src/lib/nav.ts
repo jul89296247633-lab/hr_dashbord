@@ -12,6 +12,7 @@ import {
   Users,
   Plug,
   ScrollText,
+  Rocket,
   type LucideIcon,
 } from 'lucide-react';
 import type { Role } from '@/types';
@@ -59,6 +60,7 @@ export function navItemsForRole(role: Role): NavItem[] {
       { label: 'Пользователи', href: '/admin/users', icon: Users },
       { label: 'Интеграции', href: '/admin/integrations', icon: Plug },
       { label: 'Логи', href: '/admin/logs', icon: ScrollText },
+      { label: 'Запуск компании', href: '/onboarding', icon: Rocket },
     );
   }
 
