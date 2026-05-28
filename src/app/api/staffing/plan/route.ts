@@ -23,7 +23,8 @@ import type { StaffingPlanRow } from '@/types';
  */
 export async function GET() {
   try {
-    await getAuthUser();
+    const user = await getAuthUser();
+    requireRole(user, ['head', 'admin', 'executive']);
 
     const supabase = await createClient();
     const { data, error } = await supabase.rpc('compute_staffing_plan', {
@@ -85,34 +86,11 @@ export async function POST(request: NextRequest) {
     const input = parsed.data;
 
     const supabase = await createClient();
+    const selectCols =
+      'id, city, position_name, planned_units, comment, created_at, updated_at' as const;
 
-    const { data: existing, error: findError } = await supabase
-      .from('staffing_plan')
-      .select('id')
-      .eq('city', input.city)
-      .eq('position_name', input.position_name)
-      .maybeSingle();
-    if (findError) throw new ApiError(500, 'DB_ERROR', findError.message);
-
-    if (existing) {
-      const { data: updated, error: updateError } = await supabase
-        .from('staffing_plan')
-        .update({
-          planned_units: input.planned_units,
-          comment: input.comment ?? null,
-        })
-        .eq('id', existing.id)
-        .select('id, city, position_name, planned_units, comment, created_at, updated_at')
-        .single();
-      if (updateError || !updated) {
-        throw new ApiError(500, 'DB_ERROR', updateError?.message ?? 'Не удалось обновить план');
-      }
-      return apiSuccess({
-        data: updated,
-        message: `План обновлён: ${input.city} / ${input.position_name} = ${input.planned_units}`,
-      });
-    }
-
+    // Сначала пробуем INSERT. При уникальном конфликте (23505) падаем в UPDATE,
+    // не трогая created_by — эмулирует ON CONFLICT DO UPDATE без перезаписи автора.
     const { data: inserted, error: insertError } = await supabase
       .from('staffing_plan')
       .insert({
@@ -122,18 +100,41 @@ export async function POST(request: NextRequest) {
         comment: input.comment ?? null,
         created_by: user.id,
       })
-      .select('id, city, position_name, planned_units, comment, created_at, updated_at')
+      .select(selectCols)
       .single();
-    if (insertError || !inserted) {
-      throw new ApiError(500, 'DB_ERROR', insertError?.message ?? 'Не удалось создать план');
+
+    if (!insertError) {
+      return apiSuccess(
+        {
+          data: inserted,
+          message: `План добавлен: ${input.city} / ${input.position_name} = ${input.planned_units}`,
+        },
+        201,
+      );
     }
-    return apiSuccess(
-      {
-        data: inserted,
-        message: `План добавлен: ${input.city} / ${input.position_name} = ${input.planned_units}`,
-      },
-      201,
-    );
+
+    if (insertError.code !== '23505') {
+      throw new ApiError(500, 'DB_ERROR', insertError.message);
+    }
+
+    // Уникальный конфликт: обновляем planned_units + comment, created_by не трогаем.
+    const { data: updated, error: updateError } = await supabase
+      .from('staffing_plan')
+      .update({
+        planned_units: input.planned_units,
+        comment: input.comment ?? null,
+      })
+      .eq('city', input.city)
+      .eq('position_name', input.position_name)
+      .select(selectCols)
+      .single();
+    if (updateError || !updated) {
+      throw new ApiError(500, 'DB_ERROR', updateError?.message ?? 'Не удалось обновить план');
+    }
+    return apiSuccess({
+      data: updated,
+      message: `План обновлён: ${input.city} / ${input.position_name} = ${input.planned_units}`,
+    });
   } catch (err) {
     return handleApiError(err);
   }

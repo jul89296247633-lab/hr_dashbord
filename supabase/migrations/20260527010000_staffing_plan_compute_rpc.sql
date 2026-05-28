@@ -60,6 +60,9 @@ AS $$
       AND similarity(he.position_name, sp.position_name) >= p_threshold
   ) occ ON TRUE
   LEFT JOIN LATERAL (
+    -- TODO: фильтр фантомов (google_sheet_row) будет унифицирован в фиче 3
+    -- (vacancy_request) вместе с internal_ref и requested_by. Сейчас намеренно
+    -- считаем все active-вакансии.
     SELECT COUNT(*) AS cnt
     FROM public.vacancies v
     WHERE v.location = sp.city

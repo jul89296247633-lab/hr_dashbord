@@ -43,11 +43,12 @@ export function StaffingCheckWidget({ location }: { location: string }) {
     }
     setLoading(true);
     setError(null);
-    let aborted = false;
-    fetch(`/api/staffing/availability?location=${encodeURIComponent(trimmed)}`)
+    const controller = new AbortController();
+    fetch(`/api/staffing/availability?location=${encodeURIComponent(trimmed)}`, {
+      signal: controller.signal,
+    })
       .then(async (res) => {
         const json = await res.json();
-        if (aborted) return;
         if (!res.ok) {
           setError(json?.error?.message ?? 'Ошибка загрузки');
           setData(null);
@@ -55,15 +56,14 @@ export function StaffingCheckWidget({ location }: { location: string }) {
         }
         setData(json.data as StaffingAvailabilityResponse);
       })
-      .catch(() => {
-        if (!aborted) setError('Ошибка загрузки');
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setError('Ошибка загрузки');
       })
       .finally(() => {
-        if (!aborted) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
-    return () => {
-      aborted = true;
-    };
+    return () => controller.abort();
   }, [location]);
 
   if (location.trim().length < 2) return null;
