@@ -26,8 +26,8 @@ export async function GET(request: NextRequest) {
       return apiError('VALIDATION_ERROR', 'Параметр manager_id обязателен и должен быть UUID', 422);
     }
 
-    const clientId = process.env.HH_CLIENT_ID;
-    const redirectUri = process.env.HH_REDIRECT_URI;
+    const clientId = process.env.HH_CLIENT_ID?.trim();
+    const redirectUri = process.env.HH_REDIRECT_URI?.trim();
     if (!clientId || !redirectUri) {
       return apiError(
         'CONFIG_ERROR',

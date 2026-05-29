@@ -40,9 +40,9 @@ export async function GET(request: NextRequest) {
     const managerId = state;
 
     // ── Конфигурация ──────────────────────────────────────────────────────────
-    const clientId = process.env.HH_CLIENT_ID;
-    const clientSecret = process.env.HH_CLIENT_SECRET;
-    const redirectUri = process.env.HH_REDIRECT_URI;
+    const clientId = process.env.HH_CLIENT_ID?.trim();
+    const clientSecret = process.env.HH_CLIENT_SECRET?.trim();
+    const redirectUri = process.env.HH_REDIRECT_URI?.trim();
 
     if (!clientId || !clientSecret || !redirectUri) {
       return redirect(`${INTEGRATIONS}?error=hh_config`);
