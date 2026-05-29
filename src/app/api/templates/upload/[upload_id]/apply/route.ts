@@ -251,7 +251,7 @@ export async function POST(
       }
 
       if (hrInserts.length > 0) {
-        const { error } = await db.from('hr_manager_syncs').upsert(hrInserts, { onConflict: 'hh_manager_id', ignoreDuplicates: true });
+        const { error } = await db.from('hr_manager_syncs').insert(hrInserts);
         if (error) throw new ApiError(500, 'DB_ERROR', `hr_manager_syncs batch INSERT: ${error.message}`);
         totalInserted += hrInserts.length;
       }
