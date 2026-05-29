@@ -1,6 +1,6 @@
 # HANDOFF — HR Control Tower
 
-> Сводка состояния проекта. Обновлено: **2026-05-29 (вечер)**.
+> Сводка состояния проекта. Обновлено: **2026-05-29 (ночь)**.
 > Источник истины — `SPEC.md`. Правила команды — `CLAUDE.md`.
 > Стек: Next.js 15 (App Router, `src/`), TypeScript, Tailwind v4, shadcn/ui, Supabase PG17, Zod.
 
@@ -10,21 +10,20 @@
 
 ## 🔥 Что делать первым в следующей сессии
 
-**HH OAuth работает** (`970bb72` + серия фиксов). Следующий приоритет — cron-скрипты, они ждут партнёрского подтверждения.
+**HH OAuth #22195 подтверждён партнёром — главный блокер снят.** Cron-скрипты можно реализовывать прямо сейчас.
 
 ### Ожидает внешних действий (не код)
-1. **HH OAuth #22195 — подтверждение партнёра.** После этого — сразу cron-скрипты.
-2. **Добавить 43 фантомные «закрытые» вакансии за май в лист «Data»** — без этого май = 0 закрытых в KPI.
-3. **SMTP для `/reset-password`** — Supabase Dashboard → Auth → SMTP.
-4. **Татьяна** — выдать пароль/доступ.
+1. **Добавить 43 фантомные «закрытые» вакансии за май в лист «Data»** — без этого май = 0 закрытых в KPI.
+2. **SMTP для `/reset-password`** — Supabase Dashboard → Auth → SMTP.
+3. **Татьяна** — выдать пароль/доступ.
 
 ### Ближайшие код-задачи (по приоритету)
-1. **Cron-скрипты** (после HH OAuth):
-   - `scripts/refresh-hh-tokens.ts` — сначала, разблокирует всё остальное
+1. **Cron-скрипты** — блокер снят, делать сейчас:
+   - `scripts/refresh-hh-tokens.ts` — первым (разблокирует sync-hh)
    - `scripts/sync-hh.ts` — основной cron каждые 2ч
    - `scripts/sync-mango.ts` — ежедневно 20:00
    - `scripts/generate-weekly-report.ts` — пятница 20:30
-2. **`lib/telegram.ts`** + подключить алерты в cron (TELEGRAM_BOT_TOKEN уже в .env)
+2. **`lib/telegram.ts`** + алерты в cron (TELEGRAM_BOT_TOKEN уже в .env)
 3. **Удалить console.log** в `hh-csv/route.ts` — lint `no-console` горит
 4. **`/api/ai/report/[week]` + `/ai/report/[week]` page** — страница детального weekly_report
 5. **trend_14d sparklines** в `/vacancies/[id]` (recharts, 14 точек)
@@ -119,8 +118,8 @@
 
 | Приоритет | Задача | Зависит от |
 |---|---|---|
-| 🔴 | `scripts/refresh-hh-tokens.ts` | — |
-| 🔴 | `scripts/sync-hh.ts` | HH OAuth партнёр |
+| 🔴 | `scripts/refresh-hh-tokens.ts` | — (делать сейчас) |
+| 🔴 | `scripts/sync-hh.ts` | ~~HH OAuth партнёр~~ **подтверждён** |
 | 🔴 | `scripts/sync-mango.ts` | Mango .env |
 | 🔴 | `scripts/generate-weekly-report.ts` | Anthropic API |
 | 🔴 | `lib/telegram.ts` + алерты в cron | — |
@@ -133,7 +132,7 @@
 | 🟢 | Timestamp «Данные актуальны на HH:MM» в воронке вакансии | — |
 
 ### Прод-операции
-1. **HH OAuth #22195** — ждём подтверждения партнёра.
+1. ~~**HH OAuth #22195**~~ — **подтверждён**, блокер снят.
 2. **43 фантомные закрытые вакансии** — добавить в лист «Data» → sheets-sync.
 3. **SMTP** — Supabase Dashboard → Auth → SMTP.
 4. **Татьяна** — выдать пароль/доступ.
