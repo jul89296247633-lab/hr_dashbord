@@ -9,6 +9,7 @@ import {
 } from '@/lib/api-helpers';
 import { createClient } from '@/lib/supabase/server';
 import { vacancyListQuerySchema, vacancyCreateSchema } from '@/lib/validations';
+import { generateInternalRef } from '@/lib/templates/internal-ref';
 import type { VacancyListItem } from '@/types';
 
 /**
@@ -120,21 +121,31 @@ export async function POST(request: NextRequest) {
     const input = parsed.data;
 
     const supabase = await createClient();
+
+    // Для конфиденциальных вакансий генерируем internal_ref через sequence.
+    let internalRef: string | null = null;
+    if (input.confidentiality === 'confidential') {
+      internalRef = await generateInternalRef(supabase);
+    }
+
     const { data, error } = await supabase
       .from('vacancies')
       .insert({
         title: input.title,
         department: input.department ?? null,
         subdivision: input.subdivision ?? null,
+        location: input.location ?? null,
         manager_id: input.manager_id,
         hh_vacancy_id: input.hh_vacancy_id ?? null,
         opened_at: input.opened_at ?? new Date().toISOString().slice(0, 10),
+        closed_at: input.closed_at ?? null,
         status: input.status,
+        confidentiality: input.confidentiality,
+        internal_ref: internalRef,
       })
       .select('*')
       .single();
     if (error || !data) {
-      // 23505 — нарушение UNIQUE (hh_vacancy_id уже привязан).
       if (error?.code === '23505') {
         return apiError('HH_VACANCY_ID_EXISTS', 'Вакансия с таким HH ID уже существует', 409);
       }

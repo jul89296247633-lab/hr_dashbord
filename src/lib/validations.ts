@@ -64,10 +64,13 @@ export const vacancyCreateSchema = z.object({
   title: z.string().min(2, 'Минимум 2 символа').max(200, 'Максимум 200 символов'),
   department: z.string().max(100).nullable().optional(),
   subdivision: z.string().max(100).nullable().optional(),
+  location: z.string().max(100).nullable().optional(),
   manager_id: z.string().uuid('Выберите ответственного менеджера'),
   hh_vacancy_id: hhVacancyIdSchema.nullable().optional(),
   opened_at: dateStringSchema.optional(),
+  closed_at: dateStringSchema.nullable().optional(),
   status: vacancyStatusSchema.default('active'),
+  confidentiality: z.enum(['open', 'confidential']).default('open'),
 });
 export type VacancyCreateInput = z.infer<typeof vacancyCreateSchema>;
 
@@ -77,6 +80,7 @@ export const vacancyUpdateSchema = z
     title: z.string().min(2).max(200).optional(),
     department: z.string().max(100).nullable().optional(),
     subdivision: z.string().max(100).nullable().optional(),
+    location: z.string().max(100).nullable().optional(),
     manager_id: z.string().uuid().optional(),
     hh_vacancy_id: hhVacancyIdSchema.nullable().optional(),
     opened_at: dateStringSchema.optional(),
@@ -210,18 +214,58 @@ export const syncLogsQuerySchema = z.object({
 export const hhCsvTypeSchema = z.enum(['politeness_managers', 'vacancies']);
 
 // ── Bonuses ──────────────────────────────────────────────────────────────────
-// Bonuses вычисляются на лету в RPC compute_manager_bonuses (SPEC §5.3 / §5.6).
-// status/page/per_page удалены: один менеджер за месяц даёт единицы строк.
+
+/** Query GET /api/bonuses — читает из hr_bonuses с фильтром по статусу (FS-2). */
 export const bonusesQuerySchema = z.object({
+  status: z.enum(['all', 'pending', 'unmatched', 'paid', 'cancelled']).default('all'),
   manager_id: z.string().uuid('Некорректный UUID менеджера').optional(),
-  year: z.coerce.number().int().min(2000).max(2100).optional(),
-  month: z.coerce.number().int().min(1).max(12).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  per_page: z.coerce.number().int().min(1).max(100).default(50),
 });
 
-/** Query GET /api/bonuses/summary. */
+/** Тело PATCH /api/bonuses/[id]/match — ручная привязка тарифа (head/admin). */
+export const bonusMatchSchema = z.object({
+  matched_position_name: z.string().min(2).max(200),
+  bonus_amount_kopecks: z.number().int().min(0),
+});
+export type BonusMatchInput = z.infer<typeof bonusMatchSchema>;
+
+/** Query GET /api/bonuses/summary (для дашборда эффективности, RPC). */
 export const bonusesSummaryPeriodSchema = z
   .enum(['week', 'month', 'quarter', 'year'])
   .default('month');
+
+// ── Admin / Bonus Rates ────────────────────────────────────────────────────────
+
+/** Тело POST /api/admin/bonus-rates (admin). */
+export const bonusRateCreateSchema = z.object({
+  position_name: z.string().min(2, 'Минимум 2 символа').max(200, 'Максимум 200 символов'),
+  amount_rubles: z.number({ invalid_type_error: 'Ожидается число' }).positive('Должно быть > 0'),
+  group_name: z.string().max(100).nullable().optional(),
+});
+export type BonusRateCreateInput = z.infer<typeof bonusRateCreateSchema>;
+
+/** Тело PATCH /api/admin/bonus-rates/[id] (admin). */
+export const bonusRateUpdateSchema = z.object({
+  position_name: z.string().min(2).max(200).optional(),
+  amount_rubles: z.number().positive().optional(),
+  group_name: z.string().max(100).nullable().optional(),
+}).refine((v) => Object.keys(v).length > 0, 'Не передано ни одного поля');
+export type BonusRateUpdateInput = z.infer<typeof bonusRateUpdateSchema>;
+
+// ── Admin / Vacancies ─────────────────────────────────────────────────────────
+
+/** Query GET /api/vacancies/admin (head/admin/executive). */
+export const vacancyAdminQuerySchema = z.object({
+  status: z.enum(['active', 'paused', 'closed', 'draft', 'all']).default('all'),
+  type: z.enum(['open', 'confidential', 'all']).default('all'),
+  city: z.string().max(100).optional(),
+  manager_id: z.string().uuid().optional(),
+  search: z.string().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  per_page: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type VacancyAdminQuery = z.infer<typeof vacancyAdminQuerySchema>;
 
 // ── AI ───────────────────────────────────────────────────────────────────────
 export const aiInsightsQuerySchema = z.object({
