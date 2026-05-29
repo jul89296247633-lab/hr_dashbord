@@ -49,7 +49,7 @@ export async function POST(
 
     const { data: upload, error: fetchError } = await supabase
       .from('template_uploads')
-      .select('id, status, preview_data, template_type')
+      .select('id, status, preview_data, template_type, uploaded_by')
       .eq('id', upload_id)
       .single();
 
@@ -58,6 +58,11 @@ export async function POST(
     }
     if (upload.status !== 'previewed') {
       return apiError('UPLOAD_EXPIRED', 'Превью устарело или уже применено. Загрузите файл заново.', 409);
+    }
+
+    const isAdmin = user.role === 'admin';
+    if (!isAdmin && upload.uploaded_by !== user.id) {
+      return apiError('FORBIDDEN', 'Нельзя применять чужую загрузку', 403);
     }
 
     const preview = (upload.preview_data ?? {}) as {

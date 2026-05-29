@@ -48,6 +48,11 @@ export async function POST(request: NextRequest) {
       return apiError('INVALID_FILE_TYPE', 'Файл должен быть в формате XLSX', 422);
     }
 
+    const MAX_XLSX_BYTES = 10 * 1024 * 1024; // 10 MB
+    if (file.size > MAX_XLSX_BYTES) {
+      return apiError('FILE_TOO_LARGE', 'Файл не должен превышать 10 МБ', 413);
+    }
+
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
