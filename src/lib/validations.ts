@@ -164,6 +164,13 @@ export const staffingPlanUpsertSchema = z.object({
     .int('Ожидается целое число')
     .min(0, 'Не может быть отрицательным')
     .max(999, 'Максимум 999'),
+  occupied_units: z
+    .number({ invalid_type_error: 'Ожидается целое число от 0 до 999' })
+    .int('Ожидается целое число')
+    .min(0, 'Не может быть отрицательным')
+    .max(999, 'Максимум 999')
+    .optional()
+    .default(0),
   comment: z.string().max(500, 'Комментарий не длиннее 500 символов').nullable().optional(),
 });
 export type StaffingPlanUpsertInput = z.infer<typeof staffingPlanUpsertSchema>;

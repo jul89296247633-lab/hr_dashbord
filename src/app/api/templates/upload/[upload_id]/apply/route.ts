@@ -112,6 +112,7 @@ export async function POST(
         city: string;
         position_name: string;
         planned_units: number;
+        occupied_units: number;
         comment: string | null;
       };
 
@@ -275,18 +276,19 @@ export async function POST(
       }
 
       // ── 4. staffing_plan ───────────────────────────────────────────────────
-      const staffingInserts: { city: string; position_name: string; planned_units: number; comment: string | null; created_by: string }[] = [];
-      const staffingUpdates: { id: string; planned_units: number; comment: string | null }[] = [];
+      const staffingInserts: { city: string; position_name: string; planned_units: number; occupied_units: number; comment: string | null; created_by: string }[] = [];
+      const staffingUpdates: { id: string; planned_units: number; occupied_units: number; comment: string | null }[] = [];
 
       for (const row of preview.staffing_plan ?? []) {
         const r = row.record as StaffingRec;
         if (row.action === 'update' && r.existing_id) {
-          staffingUpdates.push({ id: r.existing_id, planned_units: r.planned_units, comment: r.comment });
+          staffingUpdates.push({ id: r.existing_id, planned_units: r.planned_units, occupied_units: r.occupied_units, comment: r.comment });
         } else {
           staffingInserts.push({
             city: r.city,
             position_name: r.position_name,
             planned_units: r.planned_units,
+            occupied_units: r.occupied_units,
             comment: r.comment,
             created_by: user.id,
           });
@@ -298,8 +300,8 @@ export async function POST(
         if (error) throw new ApiError(500, 'DB_ERROR', `staffing_plan batch INSERT: ${error.message}`);
         totalInserted += staffingInserts.length;
       }
-      for (const { id, planned_units, comment } of staffingUpdates) {
-        const { error } = await db.from('staffing_plan').update({ planned_units, comment }).eq('id', id);
+      for (const { id, planned_units, occupied_units, comment } of staffingUpdates) {
+        const { error } = await db.from('staffing_plan').update({ planned_units, occupied_units, comment }).eq('id', id);
         if (error) throw new ApiError(500, 'DB_ERROR', `staffing_plan UPDATE: ${error.message}`);
         totalUpdated++;
       }

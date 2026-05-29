@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
     const selectCols =
-      'id, city, position_name, planned_units, comment, created_at, updated_at' as const;
+      'id, city, position_name, planned_units, occupied_units, comment, created_at, updated_at' as const;
 
     // Сначала пробуем INSERT. При уникальном конфликте (23505) падаем в UPDATE,
     // не трогая created_by — эмулирует ON CONFLICT DO UPDATE без перезаписи автора.
@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
         city: input.city,
         position_name: input.position_name,
         planned_units: input.planned_units,
+        occupied_units: input.occupied_units,
         comment: input.comment ?? null,
         created_by: user.id,
       })
@@ -117,11 +118,12 @@ export async function POST(request: NextRequest) {
       throw new ApiError(500, 'DB_ERROR', insertError.message);
     }
 
-    // Уникальный конфликт: обновляем planned_units + comment, created_by не трогаем.
+    // Уникальный конфликт: обновляем planned_units + occupied_units + comment, created_by не трогаем.
     const { data: updated, error: updateError } = await supabase
       .from('staffing_plan')
       .update({
         planned_units: input.planned_units,
+        occupied_units: input.occupied_units,
         comment: input.comment ?? null,
       })
       .eq('city', input.city)

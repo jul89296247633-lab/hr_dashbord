@@ -50,6 +50,7 @@ export const STAFFING_PLAN_COLUMNS = [
   'Город',         // staffing_plan.city (required)
   'Должность',     // staffing_plan.position_name (required)
   'Кол-во единиц', // staffing_plan.planned_units (required, 0..999)
+  'Занято',        // staffing_plan.occupied_units (optional, 0..999, default 0)
   'Комментарий',   // staffing_plan.comment (nullable)
 ] as const;
 

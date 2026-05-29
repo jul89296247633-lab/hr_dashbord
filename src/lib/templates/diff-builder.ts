@@ -89,6 +89,7 @@ const staffingRowSchema = z.object({
   'Город': z.string().min(2, 'Минимум 2 символа').max(100, 'Максимум 100 символов'),
   'Должность': z.string().min(2, 'Минимум 2 символа').max(200, 'Максимум 200 символов'),
   'Кол-во единиц': z.string().min(1, 'Кол-во единиц обязательно'),
+  'Занято': z.string().optional().default('0'),
   'Комментарий': z.string().optional().default(''),
 });
 
@@ -411,6 +412,17 @@ export async function buildStaffingPlanDiff(
       continue;
     }
 
+    const rawOccupied = v['Занято'].replace(/\s/g, '') || '0';
+    if (!/^\d+$/.test(rawOccupied)) {
+      errors.push({ sheet: 'Штатное расписание', row: rowNumber, column: 'Занято', reason: `Должно быть целым числом от 0 до 999, получено: «${v['Занято']}»` });
+      continue;
+    }
+    const occupiedUnits = parseInt(rawOccupied, 10);
+    if (occupiedUnits < 0 || occupiedUnits > 999) {
+      errors.push({ sheet: 'Штатное расписание', row: rowNumber, column: 'Занято', reason: `Должно быть от 0 до 999, получено: ${occupiedUnits}` });
+      continue;
+    }
+
     const hits = detectHomoglyphs(v['Должность']);
     if (hits.length > 0) warnings.push(`Должность: ${formatHomoglyphWarning(hits)}`);
 
@@ -428,6 +440,7 @@ export async function buildStaffingPlanDiff(
         city,
         position_name: positionName,
         planned_units: plannedUnits,
+        occupied_units: occupiedUnits,
         comment: v['Комментарий'].trim() || null,
       },
     });

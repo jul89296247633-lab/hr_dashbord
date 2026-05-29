@@ -656,6 +656,7 @@ export type Database = {
           city: string;
           position_name: string;
           planned_units: number;
+          occupied_units: number;
           comment: string | null;
           created_by: string | null;
           created_at: string;
@@ -666,6 +667,7 @@ export type Database = {
           city: string;
           position_name: string;
           planned_units: number;
+          occupied_units?: number;
           comment?: string | null;
           created_by?: string | null;
           created_at?: string;
@@ -676,6 +678,7 @@ export type Database = {
           city?: string;
           position_name?: string;
           planned_units?: number;
+          occupied_units?: number;
           comment?: string | null;
           created_by?: string | null;
           created_at?: string;
