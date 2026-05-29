@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Link2, Trash2, FileSpreadsheet, AlertCircle } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Loader2, Link2, Trash2, FileSpreadsheet, AlertCircle, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
@@ -53,10 +54,34 @@ interface SheetsResult {
   hint?: string;
 }
 
+const HH_OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  hh_denied: 'Авторизация HH отменена пользователем',
+  hh_invalid: 'Некорректный ответ от HH',
+  hh_oauth: 'Ошибка при получении токена HH',
+  hh_config: 'HH OAuth не настроен на сервере',
+  hh_manager_not_found: 'Менеджер не найден в системе',
+};
+
 export function IntegrationsClient() {
   const [managers, setManagers] = useState<HhManager[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Обрабатываем query-params после OAuth-редиректа
+  useEffect(() => {
+    const connected = searchParams.get('connected');
+    const hhError = searchParams.get('error');
+    if (connected === '1') {
+      toast.success('HH-токен подключён успешно');
+      router.replace('/admin/integrations');
+    } else if (hhError) {
+      toast.error(HH_OAUTH_ERROR_MESSAGES[hhError] ?? 'Ошибка подключения HH');
+      router.replace('/admin/integrations');
+    }
+  }, [searchParams, router]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -141,6 +166,17 @@ export function IntegrationsClient() {
                       {m.expires_at ? new Date(m.expires_at).toLocaleDateString('ru-RU') : '—'}
                     </TableCell>
                     <TableCell className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Подключить через HH (OAuth)"
+                        title="Подключить через HH (OAuth)"
+                        onClick={() => {
+                          window.location.href = `/api/auth/hh/start?manager_id=${m.manager_id}`;
+                        }}
+                      >
+                        <ExternalLink className="size-4" />
+                      </Button>
                       <HhConnectDialog managerId={m.manager_id} managerName={m.full_name} onDone={load} />
                       {m.status !== 'none' && (
                         <Button variant="ghost" size="icon" onClick={() => revoke(m.manager_id)} aria-label="Отозвать">
