@@ -24,12 +24,12 @@ export default async function RequestsPage() {
 
   const role = (profile?.role ?? 'manager') as Role;
 
-  // Для формы создания — список активных менеджеров (head/admin видят всех)
+  // Для формы создания — только исполнители-менеджеры (не head/admin)
   const { data: managers } = await supabase
     .from('user_profiles')
     .select('id, full_name')
     .eq('is_active', true)
-    .in('role', ['manager', 'head'])
+    .eq('role', 'manager')
     .order('full_name');
 
   return (
