@@ -321,9 +321,12 @@ export async function buildHrListDiff(
 
   const { data: existingSyncs } = await db
     .from('hr_manager_syncs')
-    .select('id, sheet_full_name');
+    .select('id, sheet_full_name, hh_manager_id');
   const syncByName = new Map(
     (existingSyncs ?? []).map((s) => [s.sheet_full_name.trim().toLowerCase(), s.id as string]),
+  );
+  const syncByHhId = new Map(
+    (existingSyncs ?? []).filter((s) => s.hh_manager_id).map((s) => [s.hh_manager_id!, s.id as string]),
   );
 
   for (const { rowNumber, values } of sheet.rows) {
@@ -341,8 +344,9 @@ export async function buildHrListDiff(
 
     const email = v['Email'].trim().toLowerCase();
     const fullName = v['ФИО'].trim();
+    const hhId = v['HH Manager ID'].trim() || null;
     const profileId = byEmail.get(email) ?? null;
-    const syncId = syncByName.get(fullName.toLowerCase()) ?? null;
+    const syncId = syncByName.get(fullName.toLowerCase()) ?? (hhId ? (syncByHhId.get(hhId) ?? null) : null);
 
     if (!profileId) {
       warnings.push('Пользователь с таким email не найден в системе — будет создана запись в hr_manager_syncs без привязки к аккаунту');
@@ -358,7 +362,7 @@ export async function buildHrListDiff(
         full_name: fullName,
         email: v['Email'].trim(),
         role: v['Роль'],
-        hh_manager_id: v['HH Manager ID'].trim() || null,
+        hh_manager_id: hhId,
       },
     });
   }

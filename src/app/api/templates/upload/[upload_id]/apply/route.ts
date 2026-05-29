@@ -251,9 +251,16 @@ export async function POST(
       }
 
       if (hrInserts.length > 0) {
-        const { error } = await db.from('hr_manager_syncs').insert(hrInserts);
+        const seenHhIds = new Set<string>();
+        const dedupedInserts = hrInserts.filter((r) => {
+          if (!r.hh_manager_id) return true;
+          if (seenHhIds.has(r.hh_manager_id)) return false;
+          seenHhIds.add(r.hh_manager_id);
+          return true;
+        });
+        const { error } = await db.from('hr_manager_syncs').insert(dedupedInserts);
         if (error) throw new ApiError(500, 'DB_ERROR', `hr_manager_syncs batch INSERT: ${error.message}`);
-        totalInserted += hrInserts.length;
+        totalInserted += dedupedInserts.length;
       }
       for (const { id, ...payload } of hrUpdates) {
         const { error } = await db
