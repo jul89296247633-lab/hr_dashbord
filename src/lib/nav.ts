@@ -13,6 +13,7 @@ import {
   Plug,
   ScrollText,
   Rocket,
+  FileCheck,
   type LucideIcon,
 } from 'lucide-react';
 import type { Role } from '@/types';
@@ -30,6 +31,7 @@ export function navItemsForRole(role: Role): NavItem[] {
       { label: 'Кабинет', href: '/cabinet', icon: Home },
       { label: 'Мой дашборд', href: '/dashboard/manager', icon: LayoutDashboard },
       { label: 'Мои вакансии', href: '/vacancies', icon: Briefcase },
+      { label: 'Заявки', href: '/requests', icon: FileCheck },
       { label: 'Бонусы', href: '/bonuses', icon: Wallet },
     ];
   }
@@ -39,6 +41,7 @@ export function navItemsForRole(role: Role): NavItem[] {
       { label: 'Дашборд', href: '/dashboard', icon: LayoutDashboard },
       { label: 'Подразделения', href: '/dashboard/divisions', icon: Building2 },
       { label: 'Штатное расписание', href: '/staffing/plan', icon: ClipboardList },
+      { label: 'Заявки', href: '/requests', icon: FileCheck },
     ];
   }
 
@@ -48,6 +51,7 @@ export function navItemsForRole(role: Role): NavItem[] {
     { label: 'Эффективность', href: '/dashboard/efficiency', icon: TrendingUp },
     { label: 'Подразделения', href: '/dashboard/divisions', icon: Building2 },
     { label: 'Вакансии', href: '/vacancies', icon: Briefcase },
+    { label: 'Заявки', href: '/requests', icon: FileCheck },
     { label: 'План', href: '/plan', icon: Target },
     { label: 'Штатное расписание', href: '/staffing/plan', icon: ClipboardList },
     { label: 'Синхронизация', href: '/sync', icon: RefreshCw },

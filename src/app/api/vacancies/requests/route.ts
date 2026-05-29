@@ -10,6 +10,44 @@ import { createClient } from '@/lib/supabase/server';
 import { vacancyRequestCreateSchema } from '@/lib/validations';
 
 /**
+ * GET /api/vacancies/requests
+ * Список заявок (status='draft'). Фильтр по ?request_status=pending|approved|rejected.
+ * manager видит только свои (RLS + явный фильтр); head/admin/executive — все.
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const user = await getAuthUser();
+    const sp = request.nextUrl.searchParams;
+    const requestStatus = sp.get('request_status') ?? undefined;
+
+    const supabase = await createClient();
+    let query = supabase
+      .from('vacancies')
+      .select(
+        'id, title, location, subdivision, confidentiality, status, request_status, request_reason, requested_by, approved_by, approved_at, rejection_reason, opened_at, created_at, manager_id, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
+        { count: 'exact' },
+      )
+      .eq('status', 'draft')
+      .order('created_at', { ascending: false });
+
+    if (requestStatus) {
+      query = query.eq('request_status', requestStatus);
+    }
+
+    if (user.role === 'manager') {
+      query = query.eq('requested_by', user.id);
+    }
+
+    const { data, count, error } = await query;
+    if (error) throw new ApiError(500, 'DB_ERROR', error.message);
+
+    return apiSuccess({ data: data ?? [], total: count ?? 0 });
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
+/**
  * POST /api/vacancies/requests
  * Создать заявку на вакансию. Доступно любому авторизованному пользователю.
  *
