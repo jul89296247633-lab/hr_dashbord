@@ -65,6 +65,13 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Обмен code на токены ──────────────────────────────────────────────────
+    console.log('[hh-callback] credentials_check', {
+      client_id_first6: clientId?.slice(0, 6),
+      client_id_last4: clientId?.slice(-4),
+      client_id_length: clientId?.length,
+      client_secret_first4: clientSecret?.slice(0, 4),
+      client_secret_length: clientSecret?.length,
+    });
     console.log('[hh-callback] step=token_exchange_start');
     const tokenRes = await fetch('https://hh.ru/oauth/token', {
       method: 'POST',
