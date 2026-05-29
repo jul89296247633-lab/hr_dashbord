@@ -126,6 +126,8 @@ export async function runHhSync(db: AdminDb): Promise<HhSyncResult> {
       continue;
     }
 
+    if (!v.manager_id) continue; // конфиденциальные/черновики без менеджера — пропускаем
+
     let token = manager.hh_access_token;
     if (!token) {
       errors.push(`HH_TOKEN_MISSING manager_id=${v.manager_id}`);

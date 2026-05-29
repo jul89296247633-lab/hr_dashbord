@@ -31,18 +31,23 @@ export async function GET(request: NextRequest) {
     if (!parsed.success) {
       return apiError('VALIDATION_ERROR', parsed.error.issues[0].message, 422);
     }
-    const { status, manager_id, page, per_page } = parsed.data;
+    const { status, manager_id, request_status, page, per_page } = parsed.data;
 
     const supabase = await createClient();
     let query = supabase
       .from('vacancies')
       .select(
-        'id, hh_vacancy_id, title, department, subdivision, location, manager_id, status, opened_at, closed_at, days_to_close, google_sheet_row, priority, created_at, updated_at, manager:user_profiles!vacancies_manager_id_fkey(id, full_name, is_active)',
+        'id, hh_vacancy_id, internal_ref, title, department, subdivision, location, manager_id, status, confidentiality, request_status, requested_by, opened_at, closed_at, days_to_close, google_sheet_row, priority, created_at, updated_at, manager:user_profiles!vacancies_manager_id_fkey(id, full_name, is_active)',
         { count: 'exact' },
       );
 
     if (status !== 'all') {
       query = query.eq('status', status);
+    }
+
+    // Фильтр заявок по статусу согласования (для раздела «Заявки»).
+    if (request_status) {
+      query = query.eq('request_status', request_status);
     }
 
     // Фильтр по чужому менеджеру доступен только привилегированным ролям.

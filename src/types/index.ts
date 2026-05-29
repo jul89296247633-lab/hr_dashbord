@@ -75,21 +75,31 @@ export interface DailyActivityWithTotal extends DailyActivity {
 }
 
 export type VacancyStatus = 'active' | 'paused' | 'closed' | 'draft';
+export type VacancyRequestStatus = 'pending' | 'approved' | 'rejected';
 
 export interface Vacancy {
   id: string;
   hh_vacancy_id: string | null;
+  internal_ref: string | null;
   title: string;
   department: string | null;
   subdivision: string | null;
   location: string | null;
-  manager_id: string;
+  manager_id: string | null;
   status: VacancyStatus;
+  confidentiality: 'open' | 'confidential';
   opened_at: string;
   closed_at: string | null;
   days_to_close: number | null;
   google_sheet_row: number | null;
   priority: VacancyPriority | null;
+  // Поля заявки (NULL у вакансий из Sheets/CSV)
+  request_status: VacancyRequestStatus | null;
+  request_reason: string | null;
+  requested_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -100,6 +110,12 @@ export type VacancyPriority = 'высокий' | 'средний' | 'низки�
 /** Вакансия из списка с вложенным менеджером (для head/admin). */
 export interface VacancyListItem extends Vacancy {
   manager: { id: string; full_name: string; is_active?: boolean } | null;
+}
+
+/** Заявка на вакансию с вложенными профилями автора и согласующего. */
+export interface VacancyRequestItem extends VacancyListItem {
+  requester: { id: string; full_name: string } | null;
+  approver: { id: string; full_name: string } | null;
 }
 
 // ── Штатное расписание (staffing_plan, FEATURE_SPEC_staffing_plan.md) ──────

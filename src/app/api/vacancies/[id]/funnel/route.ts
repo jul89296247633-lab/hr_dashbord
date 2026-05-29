@@ -69,7 +69,7 @@ export async function GET(
     let activitiesQuery = supabase
       .from('daily_activities')
       .select('mango_calls_count, hh_calls_count, interviews_count')
-      .eq('manager_id', vacancy.manager_id);
+      .eq('manager_id', vacancy.manager_id ?? '');
     if (from) activitiesQuery = activitiesQuery.gte('activity_date', from);
     if (to) activitiesQuery = activitiesQuery.lte('activity_date', to);
     const { data: activities, error: activitiesError } = await activitiesQuery;

@@ -244,7 +244,7 @@ async function buildRecommendationContext(
   const { data: acts } = await supabase
     .from('daily_activities')
     .select('mango_calls_count, hh_calls_count')
-    .eq('manager_id', vacancy.manager_id)
+    .eq('manager_id', vacancy.manager_id ?? '')
     .gte('activity_date', fromDate);
   const calls = (acts ?? []).reduce((s, a) => s + (a.mango_calls_count ?? 0) + (a.hh_calls_count ?? 0), 0);
 

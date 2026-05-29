@@ -46,7 +46,7 @@ export default async function EditVacancyPage({ params }: { params: Promise<{ id
         title: vacancy.title,
         department: vacancy.department ?? '',
         subdivision: vacancy.subdivision ?? '',
-        manager_id: vacancy.manager_id,
+        manager_id: vacancy.manager_id ?? undefined,
         hh_vacancy_id: vacancy.hh_vacancy_id ?? '',
         opened_at: vacancy.opened_at,
         status: vacancy.status as 'active' | 'paused' | 'closed' | 'draft',

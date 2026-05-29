@@ -168,12 +168,14 @@ export async function GET(request: NextRequest) {
     // Активные вакансии по менеджеру.
     const activeVacByManager = new Map<string, number>();
     for (const v of vacanciesRes.data ?? []) {
+      if (!v.manager_id) continue;
       activeVacByManager.set(v.manager_id, (activeVacByManager.get(v.manager_id) ?? 0) + 1);
     }
 
     // Закрытые вакансии за период по менеджеру (источник «Закрыто вакансий»).
     const hiredByManager = new Map<string, number>();
     for (const v of closedRes.data ?? []) {
+      if (!v.manager_id) continue;
       hiredByManager.set(v.manager_id, (hiredByManager.get(v.manager_id) ?? 0) + 1);
     }
 

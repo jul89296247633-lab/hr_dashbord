@@ -66,10 +66,13 @@ export async function GET(request: NextRequest) {
     // фильтрует CSV-«фантомы» (остатки откатанного hh-csv auto-create, commit
     // 4c64f1c → rollback 2243fbe). Для active/funnel/cities.active фильтр НЕ
     // применяется — там фантомы пока остаются (см. dashboard/team revert 87b8c77).
+    // SPEC_RECONCILIATION §2: «реальная вакансия» = из Sheets ИЛИ конфиденциальная
+    // ИЛИ создана через заявку. Фильтр расширен чтобы draft-заявки (status='active'
+    // после активации) попадали в аналитику, не только Sheets-строки.
     let vacancyQuery = supabase
       .from('vacancies')
       .select(
-        'id, title, subdivision, location, status, days_to_close, opened_at, closed_at, google_sheet_row, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
+        'id, title, subdivision, location, status, days_to_close, opened_at, closed_at, google_sheet_row, internal_ref, requested_by, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
       );
     if (subdivisionFilter) vacancyQuery = vacancyQuery.eq('subdivision', subdivisionFilter);
     const { data: vacancies, error: vacError } = await vacancyQuery;
@@ -139,7 +142,7 @@ export async function GET(request: NextRequest) {
         v.closed_at &&
         v.closed_at >= from &&
         v.closed_at <= to &&
-        v.google_sheet_row !== null
+        (v.google_sheet_row !== null || v.internal_ref !== null || v.requested_by !== null)
       ) {
         hiredByVacancy.set(v.id, (hiredByVacancy.get(v.id) ?? 0) + 1);
       }
@@ -163,7 +166,7 @@ export async function GET(request: NextRequest) {
           v.closed_at &&
           v.closed_at >= from &&
           v.closed_at <= to &&
-          v.google_sheet_row !== null,
+          (v.google_sheet_row !== null || v.internal_ref !== null || v.requested_by !== null),
       );
       const closeDays = closedInPeriod
         .map((v) => v.days_to_close)
@@ -223,7 +226,7 @@ export async function GET(request: NextRequest) {
           v.closed_at &&
           v.closed_at >= from &&
           v.closed_at <= to &&
-          v.google_sheet_row !== null
+          (v.google_sheet_row !== null || v.internal_ref !== null || v.requested_by !== null)
         ) {
           cur.closed += 1;
         }

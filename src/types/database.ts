@@ -82,19 +82,27 @@ export type Database = {
         Row: {
           id: string;
           hh_vacancy_id: string | null;
+          internal_ref: string | null;
           title: string;
           department: string | null;
           subdivision: string | null;
           location: string | null;
           customer_name: string | null;
           positions_count: number | null;
-          manager_id: string;
+          manager_id: string | null;
           status: string;
+          confidentiality: string;
           opened_at: string;
           closed_at: string | null;
           days_to_close: number | null;
           google_sheet_row: number | null;
           priority: string | null;
+          request_status: string | null;
+          request_reason: string | null;
+          requested_by: string | null;
+          approved_by: string | null;
+          approved_at: string | null;
+          rejection_reason: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -115,6 +123,12 @@ export type Database = {
           closed_at?: string | null;
           google_sheet_row?: number | null;
           priority?: string | null;
+          request_status?: string | null;
+          request_reason?: string | null;
+          requested_by?: string | null;
+          approved_by?: string | null;
+          approved_at?: string | null;
+          rejection_reason?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -135,6 +149,12 @@ export type Database = {
           closed_at?: string | null;
           google_sheet_row?: number | null;
           priority?: string | null;
+          request_status?: string | null;
+          request_reason?: string | null;
+          requested_by?: string | null;
+          approved_by?: string | null;
+          approved_at?: string | null;
+          rejection_reason?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -983,6 +1003,10 @@ export type Database = {
           in_progress: number;
           vacant: number;
         }[];
+      };
+      gen_internal_ref: {
+        Args: Record<string, never>;
+        Returns: string;
       };
     };
     Enums: {

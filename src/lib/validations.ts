@@ -45,6 +45,8 @@ export const vacancyListQuerySchema = z.object({
     .default('active'),
   // manager_id допустим только для head/admin/executive; проверка роли — в роуте.
   manager_id: z.string().uuid('Некорректный UUID менеджера').optional(),
+  // Фильтр заявок по статусу согласования (для раздела «Заявки»).
+  request_status: z.enum(['pending', 'approved', 'rejected']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   per_page: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -283,3 +285,40 @@ export const adminUserUpdateSchema = z
   })
   .refine((v) => Object.keys(v).length > 0, 'Не передано ни одного поля для обновления');
 export type AdminUserUpdateInput = z.infer<typeof adminUserUpdateSchema>;
+
+// ── Vacancy Requests (FEATURE_SPEC_vacancy_request.md) ────────────────────────
+
+/** Тело POST /api/vacancies/requests — создание черновой заявки. */
+export const vacancyRequestCreateSchema = z.object({
+  title: z.string().min(2, 'Название — минимум 2 символа').max(200, 'Название — максимум 200 символов'),
+  department: z.string().max(100).nullable().optional(),
+  subdivision: z.string().max(100).nullable().optional(),
+  location: z.string().max(100).nullable().optional(),
+  // manager_id: кто будет работать вакансию. Nullable — можно назначить позже.
+  manager_id: z.string().uuid('Некорректный UUID менеджера').nullable().optional(),
+  opened_at: dateStringSchema,
+  request_reason: z.string().max(1000, 'Причина — максимум 1000 символов').nullable().optional(),
+  confidentiality: z.enum(['open', 'confidential']).default('open'),
+  positions_count: z.number().int().min(1).max(100).default(1),
+});
+export type VacancyRequestCreateInput = z.infer<typeof vacancyRequestCreateSchema>;
+
+/** Тело PATCH /api/vacancies/requests/[id]/reject. */
+export const vacancyRejectSchema = z.object({
+  rejection_reason: z
+    .string()
+    .min(1, 'Причина отклонения обязательна')
+    .max(500, 'Причина — максимум 500 символов'),
+});
+export type VacancyRejectInput = z.infer<typeof vacancyRejectSchema>;
+
+/** Тело PATCH /api/vacancies/requests/[id]/activate. */
+export const vacancyActivateSchema = z.object({
+  // Для открытой вакансии обязателен; для конфиденциальной — не передаётся.
+  hh_vacancy_id: z
+    .string()
+    .regex(/^\d+$/, 'ID на HH.ru — только цифры')
+    .nullable()
+    .optional(),
+});
+export type VacancyActivateInput = z.infer<typeof vacancyActivateSchema>;
