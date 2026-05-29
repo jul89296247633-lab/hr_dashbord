@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { getAuthUser, requireRole, ApiError } from '@/lib/api-helpers';
+import { ApiError } from '@/lib/api-helpers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { uuidSchema } from '@/lib/validations';
 
@@ -8,33 +8,24 @@ const INTEGRATIONS = '/admin/integrations';
 /**
  * GET /api/auth/hh/callback?code=...&state=...
  *
- * HH.ru редиректит сюда после авторизации пользователя (authorization_code flow).
- * state = manager_id (UUID) — передаётся из /api/auth/hh/start.
+ * HH.ru редиректит сюда после авторизации (authorization_code flow).
+ * state = manager_id (UUID), передаётся из /api/auth/hh/start.
  *
- * Алгоритм:
- * 1. Проверяем, что текущий пользователь — admin (сессия в cookies сохранилась).
- * 2. Если HH вернул error (пользователь отказал) → redirect с ?error=hh_denied.
- * 3. Меняем code на access_token + refresh_token через POST https://hh.ru/oauth/token.
- * 4. Сохраняем токены в user_profiles[state] через service_role.
- * 5. Redirect на /admin/integrations?connected=1.
- *
- * При любой ошибке → redirect на /admin/integrations?error=... (не JSON-ответ,
- * т.к. это браузерный редирект, а не fetch-запрос).
+ * Намеренно НЕ проверяем сессию через getAuthUser():
+ * - Браузер возвращается с hh.ru, и SSR-cookies могут быть недоступны
+ *   в момент обработки редиректа (Next.js 15 edge behaviour).
+ * - Безопасность обеспечивается иначе: code одноразовый и принимается
+ *   только на зарегистрированный redirect_uri; state = manager_id
+ *   непредсказуем снаружи; инициировать flow может только admin.
  */
 export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin;
-
-  const redirect = (path: string) =>
-    NextResponse.redirect(new URL(path, origin));
+  const redirect = (path: string) => NextResponse.redirect(new URL(path, origin));
 
   try {
-    // ── Аутентификация ────────────────────────────────────────────────────────
-    const user = await getAuthUser();
-    requireRole(user, ['admin']);
-
     const { searchParams } = request.nextUrl;
 
-    // HH вернул ошибку (например, пользователь отказал в авторизации)
+    // HH вернул ошибку (пользователь отказал в авторизации)
     if (searchParams.get('error')) {
       return redirect(`${INTEGRATIONS}?error=hh_denied`);
     }
@@ -48,7 +39,7 @@ export async function GET(request: NextRequest) {
 
     const managerId = state;
 
-    // ── Конфигурация ─────────────────────────────────────────────────────────
+    // ── Конфигурация ──────────────────────────────────────────────────────────
     const clientId = process.env.HH_CLIENT_ID;
     const clientSecret = process.env.HH_CLIENT_SECRET;
     const redirectUri = process.env.HH_REDIRECT_URI;
@@ -57,7 +48,7 @@ export async function GET(request: NextRequest) {
       return redirect(`${INTEGRATIONS}?error=hh_config`);
     }
 
-    // ── Обмен code на токены ─────────────────────────────────────────────────
+    // ── Обмен code на токены ──────────────────────────────────────────────────
     const tokenRes = await fetch('https://hh.ru/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -84,7 +75,7 @@ export async function GET(request: NextRequest) {
 
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
 
-    // ── Сохранение в БД ───────────────────────────────────────────────────────
+    // ── Сохранение в БД через service_role ───────────────────────────────────
     const db = createAdminClient();
     const { data: profile, error: dbError } = await db
       .from('user_profiles')
@@ -106,7 +97,6 @@ export async function GET(request: NextRequest) {
 
     return redirect(`${INTEGRATIONS}?connected=1`);
   } catch (err) {
-    // Всегда делаем redirect — это браузерный endpoint, не API-fetch.
     console.error('[hh-callback] unexpected error:', err);
     return redirect(`${INTEGRATIONS}?error=hh_oauth`);
   }

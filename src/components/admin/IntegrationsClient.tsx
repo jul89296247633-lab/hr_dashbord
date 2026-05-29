@@ -70,19 +70,6 @@ export function IntegrationsClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Обрабатываем query-params после OAuth-редиректа
-  useEffect(() => {
-    const connected = searchParams.get('connected');
-    const hhError = searchParams.get('error');
-    if (connected === '1') {
-      toast.success('HH-токен подключён успешно');
-      router.replace('/admin/integrations');
-    } else if (hhError) {
-      toast.error(HH_OAUTH_ERROR_MESSAGES[hhError] ?? 'Ошибка подключения HH');
-      router.replace('/admin/integrations');
-    }
-  }, [searchParams, router]);
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -98,9 +85,25 @@ export function IntegrationsClient() {
     }
   }, []);
 
+  // Первоначальная загрузка
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Обрабатываем query-params после OAuth-редиректа.
+  // router.replace — soft-navigation, load() нужно вызвать явно для обновления статусов.
+  useEffect(() => {
+    const connected = searchParams.get('connected');
+    const hhError = searchParams.get('error');
+    if (connected === '1') {
+      toast.success('HH-токен подключён успешно');
+      router.replace('/admin/integrations');
+      void load();
+    } else if (hhError) {
+      toast.error(HH_OAUTH_ERROR_MESSAGES[hhError] ?? 'Ошибка подключения HH');
+      router.replace('/admin/integrations');
+    }
+  }, [searchParams, router, load]);
 
   async function revoke(managerId: string) {
     try {
