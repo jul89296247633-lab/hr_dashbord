@@ -10,13 +10,13 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import {
   readSheetTab,
   parseSheetDate,
-  rublesToKopecks,
   VACANCIES_TAB,
   MANAGERS_TAB,
   BONUSES_TAB,
   type SheetRow,
 } from '@/lib/google-sheets';
 import { provisionManager } from '@/lib/auto-provision';
+import { rublesToKopecks } from '@/lib/utils';
 
 /**
  * POST /api/sync/sheets — ручная синхронизация Google Sheets (head, admin).

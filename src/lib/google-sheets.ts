@@ -97,10 +97,4 @@ export function parseSheetDate(value: string): string | null {
   return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
 }
 
-/** Сумма в рублях из Sheets → копейки. '50 000', '50000,50' → INTEGER коп. */
-export function rublesToKopecks(value: string): number {
-  const cleaned = (value ?? '').replace(/\s/g, '').replace(',', '.');
-  const rub = Number.parseFloat(cleaned);
-  if (!Number.isFinite(rub)) return 0;
-  return Math.round(rub * 100);
-}
+// rublesToKopecks перенесена в @/lib/utils — используется и в sheets, и в XLSX-онбординге.

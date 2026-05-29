@@ -464,76 +464,7 @@ export type Database = {
         };
         Relationships: [];
       };
-      hr_bonuses: {
-        Row: {
-          id: string;
-          sheet_row_id: number;
-          manager_sync_id: string | null;
-          manager_id: string | null;
-          vacancy_id: string | null;
-          vacancy_title_sheet: string;
-          manager_name_sheet: string;
-          bonus_amount_kopecks: number;
-          bonus_date: string;
-          status: string;
-          synced_at: string;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          sheet_row_id: number;
-          manager_sync_id?: string | null;
-          manager_id?: string | null;
-          vacancy_id?: string | null;
-          vacancy_title_sheet: string;
-          manager_name_sheet: string;
-          bonus_amount_kopecks: number;
-          bonus_date: string;
-          status?: string;
-          synced_at?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          sheet_row_id?: number;
-          manager_sync_id?: string | null;
-          manager_id?: string | null;
-          vacancy_id?: string | null;
-          vacancy_title_sheet?: string;
-          manager_name_sheet?: string;
-          bonus_amount_kopecks?: number;
-          bonus_date?: string;
-          status?: string;
-          synced_at?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'hr_bonuses_manager_sync_id_fkey';
-            columns: ['manager_sync_id'];
-            isOneToOne: false;
-            referencedRelation: 'hr_manager_syncs';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'hr_bonuses_manager_id_fkey';
-            columns: ['manager_id'];
-            isOneToOne: false;
-            referencedRelation: 'user_profiles';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'hr_bonuses_vacancy_id_fkey';
-            columns: ['vacancy_id'];
-            isOneToOne: false;
-            referencedRelation: 'vacancies';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
+
       hh_manager_stats: {
         Row: {
           id: string;

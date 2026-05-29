@@ -311,7 +311,6 @@ function AuditTab() {
             <SelectItem value="manager_plans">manager_plans</SelectItem>
             <SelectItem value="staffing_records">staffing_records</SelectItem>
             <SelectItem value="hired_employees">hired_employees</SelectItem>
-            <SelectItem value="hr_bonuses">hr_bonuses</SelectItem>
           </SelectContent>
         </Select>
         <Select value={action} onValueChange={setAction}>
