@@ -781,6 +781,57 @@ export type Database = {
           },
         ];
       };
+      impersonation_logs: {
+        Row: {
+          id: string;
+          impersonator_id: string;
+          impersonator_role: string;
+          target_manager_id: string;
+          started_at: string;
+          ended_at: string | null;
+          end_reason: string | null;
+          ip_address: string | null;
+          user_agent: string | null;
+        };
+        Insert: {
+          id?: string;
+          impersonator_id: string;
+          impersonator_role: string;
+          target_manager_id: string;
+          started_at?: string;
+          ended_at?: string | null;
+          end_reason?: string | null;
+          ip_address?: string | null;
+          user_agent?: string | null;
+        };
+        Update: {
+          id?: string;
+          impersonator_id?: string;
+          impersonator_role?: string;
+          target_manager_id?: string;
+          started_at?: string;
+          ended_at?: string | null;
+          end_reason?: string | null;
+          ip_address?: string | null;
+          user_agent?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'impersonation_logs_impersonator_id_fkey';
+            columns: ['impersonator_id'];
+            isOneToOne: false;
+            referencedRelation: 'user_profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'impersonation_logs_target_manager_id_fkey';
+            columns: ['target_manager_id'];
+            isOneToOne: false;
+            referencedRelation: 'user_profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       audit_logs: {
         Row: {
           id: string;
