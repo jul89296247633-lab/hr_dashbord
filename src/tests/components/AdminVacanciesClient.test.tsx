@@ -1,6 +1,6 @@
 /**
- * AdminVacanciesClient — EC-8, VacancyEditableCell (inline edit + откат),
- * CSV export, пустое состояние.
+ * AdminVacanciesClient — EC-8, VacancyEditableCell (inline edit + откат + blur),
+ * VacancyStatusCell (closed требует Calendar), CSV export, пустое состояние.
  */
 import React from 'react';
 import { vi, describe, it, expect, afterEach } from 'vitest';
@@ -100,23 +100,21 @@ describe('EC-8: колонка «Менеджер» по роли', () => {
   });
 });
 
+/** Получает редактируемую ячейку title (первый editable span в строке). */
+async function getTitleCell() {
+  const row = await getDataRow();
+  const editableSpans = within(row).getAllByTitle('Двойной клик для редактирования');
+  return editableSpans[0];
+}
+
+/** Находит textbox внутри строки таблицы (исключает search/city inputs в filters). */
+async function getRowInput() {
+  const row = await getDataRow();
+  return within(row).getByRole('textbox');
+}
+
 // ── VacancyEditableCell: inline edit ─────────────────────────────────────────
 describe('VacancyEditableCell — inline edit', () => {
-  /** Получает редактируемую ячейку title (span в первой строке). */
-  async function getTitleCell() {
-    const row = await getDataRow();
-    // VacancyEditableCell рендерит span с title="Двойной клик для редактирования"
-    const editableSpans = within(row).getAllByTitle('Двойной клик для редактирования');
-    // Первый editable span — это title (Старший продавец)
-    return editableSpans[0];
-  }
-
-  /** Находит input внутри строки таблицы (исключает search/city inputs в filters). */
-  async function getRowInput() {
-    const row = await getDataRow();
-    // VacancyEditableCell помещает Input внутри ячейки таблицы
-    return within(row).getByRole('textbox');
-  }
 
   it('двойной клик показывает input с текущим значением', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(listResponse([vacancy]));
@@ -269,6 +267,151 @@ describe('CSV export', () => {
   });
 });
 
+// ── VacancyEditableCell: blur ─────────────────────────────────────────────────
+describe('VacancyEditableCell — blur', () => {
+  it('blur вызывает save (fetch PATCH)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(listResponse([vacancy]))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { ...vacancy, title: 'Блюр тест' } }), { status: 200 }),
+      );
+
+    render(<AdminVacanciesClient role="admin" managers={managers} />);
+
+    const cell = await getTitleCell();
+    await userEvent.dblClick(cell);
+
+    const row = await getDataRow();
+    const input = within(row).getByRole('textbox');
+
+    // Меняем значение и теряем фокус (blur)
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Блюр тест');
+    await userEvent.tab(); // tab уходит с поля → вызывает blur
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(screen.queryByDisplayValue('Блюр тест')).not.toBeInTheDocument(); // input закрыт
+  });
+
+  it('blur без изменений: PATCH не вызывается', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(listResponse([vacancy]));
+
+    render(<AdminVacanciesClient role="admin" managers={managers} />);
+    const cell = await getTitleCell();
+    await userEvent.dblClick(cell);
+
+    // Blur без изменения значения (Tab сразу)
+    await userEvent.tab();
+
+    await waitFor(() => {
+      const row = screen.getAllByRole('row')[1];
+      expect(within(row).queryByRole('textbox')).not.toBeInTheDocument();
+    });
+    // fetch должен вызваться только 1 раз (загрузка)
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── VacancyStatusCell: closed требует Calendar ────────────────────────────────
+describe('VacancyStatusCell — статус closed', () => {
+  it('клик «Закрыта» показывает Calendar, не вызывает PATCH сразу', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(listResponse([vacancy]));
+
+    render(<AdminVacanciesClient role="admin" managers={managers} />);
+    await getDataRow();
+
+    // Открываем popover статуса (кнопка «Активна»)
+    const statusBtn = screen.getByRole('button', { name: /активна/i });
+    await userEvent.click(statusBtn);
+
+    // Кликаем «Закрыта» в списке статусов
+    const closedOption = await screen.findByRole('button', { name: /закрыта/i });
+    await userEvent.click(closedOption);
+
+    // Calendar должен появиться (pendingStatus='closed')
+    expect(screen.getByText('Дата закрытия')).toBeInTheDocument();
+    // PATCH ещё НЕ вызывался (только 1 вызов — начальная загрузка)
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('кнопка «Отмена» в Calendar: статус не меняется, PATCH не вызывается', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(listResponse([vacancy]));
+
+    render(<AdminVacanciesClient role="admin" managers={managers} />);
+    await getDataRow();
+
+    const statusBtn = screen.getByRole('button', { name: /активна/i });
+    await userEvent.click(statusBtn);
+
+    const closedOption = await screen.findByRole('button', { name: /закрыта/i });
+    await userEvent.click(closedOption);
+
+    // Calendar открылся — нажимаем «Отмена»
+    await screen.findByText('Дата закрытия');
+    const cancelBtn = screen.getByRole('button', { name: /отмена/i });
+    await userEvent.click(cancelBtn);
+
+    // Calendar исчез, статус-кнопка показывает исходный статус
+    expect(screen.queryByText('Дата закрытия')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /активна/i })).toBeInTheDocument();
+    // PATCH не был вызван
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('кнопка «Закрыть» в Calendar: PATCH вызывается с closed_at', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(listResponse([vacancy]))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { ...vacancy, status: 'closed', closed_at: '2026-05-30' } }), { status: 200 }),
+      );
+
+    render(<AdminVacanciesClient role="admin" managers={managers} />);
+    await getDataRow();
+
+    const statusBtn = screen.getByRole('button', { name: /активна/i });
+    await userEvent.click(statusBtn);
+
+    const closedOption = await screen.findByRole('button', { name: /закрыта/i });
+    await userEvent.click(closedOption);
+
+    await screen.findByText('Дата закрытия');
+    const closeBtn = screen.getByRole('button', { name: /^закрыть$/i });
+    await userEvent.click(closeBtn);
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+
+    // Проверяем что PATCH был с правильными полями
+    const patchCall = fetchSpy.mock.calls.find(
+      ([, opts]) => (opts as RequestInit)?.method === 'PATCH',
+    );
+    expect(patchCall).toBeTruthy();
+    const body = JSON.parse((patchCall![1] as RequestInit).body as string);
+    expect(body.status).toBe('closed');
+    expect(body.closed_at).toBeTruthy();
+  });
+
+  it('non-closed статус применяется без Calendar', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(listResponse([vacancy]))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { ...vacancy, status: 'paused' } }), { status: 200 }),
+      );
+
+    render(<AdminVacanciesClient role="admin" managers={managers} />);
+    await getDataRow();
+
+    const statusBtn = screen.getByRole('button', { name: /активна/i });
+    await userEvent.click(statusBtn);
+
+    const pausedOption = await screen.findByRole('button', { name: /пауза/i });
+    await userEvent.click(pausedOption);
+
+    // PATCH вызван сразу без Calendar
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('Дата закрытия')).not.toBeInTheDocument();
+  });
+});
+
 // ── Пустое состояние ─────────────────────────────────────────────────────────
 describe('Пустое состояние', () => {
   it('показывает «Вакансий нет.» когда список пуст', async () => {
@@ -276,5 +419,22 @@ describe('Пустое состояние', () => {
     render(<AdminVacanciesClient role="admin" managers={managers} />);
     await screen.findByText('Вакансий нет.');
     expect(screen.getByText('Вакансий нет.')).toBeInTheDocument();
+  });
+
+  it('CSV export с пустым списком: createObjectURL вызван, не падает', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(listResponse([]));
+    global.URL.createObjectURL = vi.fn().mockReturnValue('blob:test');
+    global.URL.revokeObjectURL = vi.fn();
+    HTMLAnchorElement.prototype.click = vi.fn();
+
+    render(<AdminVacanciesClient role="admin" managers={managers} />);
+    await screen.findByText('Вакансий нет.');
+
+    // Кнопка CSV видна даже при пустом списке
+    const csvBtn = screen.getByRole('button', { name: /csv/i });
+    await userEvent.click(csvBtn);
+
+    // Должен создать Blob только с заголовком (rows=[])
+    expect(global.URL.createObjectURL).toHaveBeenCalled();
   });
 });
