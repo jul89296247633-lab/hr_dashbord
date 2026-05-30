@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run src/tests/integration"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
@@ -45,11 +48,17 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20.17.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "eslint": "^9.18.0",
     "eslint-config-next": "^15.1.6",
-    "typescript": "^5.4.5"
+    "jsdom": "^29.1.1",
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.7"
   }
 }
