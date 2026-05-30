@@ -4,23 +4,27 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { uuidSchema } from '@/lib/validations';
 
 const INTEGRATIONS = '/admin/integrations';
+const NONCE_COOKIE = 'hh_oauth_nonce';
 
 /**
  * GET /api/auth/hh/callback?code=...&state=...
  *
  * HH.ru редиректит сюда после авторизации (authorization_code flow).
- * state = manager_id (UUID), передаётся из /api/auth/hh/start.
+ * state = одноразовый nonce (SEC-007), выданный в /api/auth/hh/start.
  *
- * Намеренно НЕ проверяем сессию через getAuthUser():
- * - Браузер возвращается с hh.ru, и SSR-cookies могут быть недоступны
- *   в момент обработки редиректа (Next.js 15 edge behaviour).
- * - Безопасность обеспечивается иначе: code одноразовый и принимается
- *   только на зарегистрированный redirect_uri; state = manager_id
- *   непредсказуем снаружи; инициировать flow может только admin.
+ * Намеренно НЕ проверяем сессию через getAuthUser() (браузер возвращается с
+ * hh.ru, SSR-cookies сессии могут быть недоступны). CSRF-защита:
+ *  - state(URL) должен совпасть с nonce из httpOnly-cookie (привязка к браузеру);
+ *  - связка nonce -> manager_id берётся из hh_oauth_states (server-side), с TTL;
+ *  - nonce одноразовый: удаляется из БД сразу после сверки, cookie гасится.
  */
 export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin;
-  const redirect = (path: string) => NextResponse.redirect(new URL(path, origin));
+  const redirect = (path: string) => {
+    const res = NextResponse.redirect(new URL(path, origin));
+    res.cookies.set(NONCE_COOKIE, '', { path: '/api/auth/hh', maxAge: 0 }); // гасим cookie в любом исходе
+    return res;
+  };
 
   try {
     const { searchParams } = request.nextUrl;
@@ -32,13 +36,37 @@ export async function GET(request: NextRequest) {
     }
 
     const code = searchParams.get('code');
-    const state = searchParams.get('state'); // manager_id
+    const state = searchParams.get('state'); // nonce
+    const cookieNonce = request.cookies.get(NONCE_COOKIE)?.value;
 
-    if (!code || !state || !uuidSchema.safeParse(state).success) {
+    // CSRF-проверка №1: state(URL) == nonce(httpOnly-cookie) И валидный UUID.
+    if (
+      !code ||
+      !state ||
+      !uuidSchema.safeParse(state).success ||
+      !cookieNonce ||
+      cookieNonce !== state
+    ) {
       return redirect(`${INTEGRATIONS}?error=hh_invalid`);
     }
 
-    const managerId = state;
+    const db = createAdminClient();
+
+    // CSRF-проверка №2: запись nonce есть в БД. Удаляем СРАЗУ после нахождения
+    // (одноразовость — защита от повторного использования), затем проверяем срок.
+    const { data: stateRow } = await db
+      .from('hh_oauth_states')
+      .select('manager_id, expires_at')
+      .eq('nonce', state)
+      .maybeSingle();
+    if (stateRow) {
+      await db.from('hh_oauth_states').delete().eq('nonce', state);
+    }
+    // CSRF-проверка №3: запись существует И не истекла (expires_at > now()).
+    if (!stateRow || new Date(stateRow.expires_at) < new Date()) {
+      return redirect(`${INTEGRATIONS}?error=hh_invalid`);
+    }
+    const managerId = stateRow.manager_id; // из БД-записи, НЕ из URL
 
     // ── Конфигурация ──────────────────────────────────────────────────────────
     const clientId = process.env.HH_CLIENT_ID?.trim();
@@ -75,7 +103,6 @@ export async function GET(request: NextRequest) {
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
 
     // ── Сохранение в БД через service_role ───────────────────────────────────
-    const db = createAdminClient();
     const { data: profile, error: dbError } = await db
       .from('user_profiles')
       .update({

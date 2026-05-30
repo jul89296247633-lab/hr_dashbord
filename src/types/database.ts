@@ -752,6 +752,35 @@ export type Database = {
         };
         Relationships: [];
       };
+      hh_oauth_states: {
+        Row: {
+          nonce: string;
+          manager_id: string;
+          created_at: string;
+          expires_at: string;
+        };
+        Insert: {
+          nonce?: string;
+          manager_id: string;
+          created_at?: string;
+          expires_at?: string;
+        };
+        Update: {
+          nonce?: string;
+          manager_id?: string;
+          created_at?: string;
+          expires_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'hh_oauth_states_manager_id_fkey';
+            columns: ['manager_id'];
+            isOneToOne: false;
+            referencedRelation: 'user_profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       audit_logs: {
         Row: {
           id: string;
