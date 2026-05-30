@@ -6,37 +6,36 @@
 
 ## 🔴 БЛОКЕРЫ РЕЛИЗА
 
-### 0. Workflow миграций — история выровнена 2026-05-30, db push/pull безопасны
+### 0. Workflow миграций — ТОЛЬКО supabase db push. apply_migration и SQL Editor ЗАПРЕЩЕНЫ.
 
-> **История миграций выровнена.** `supabase db push` и `supabase db pull` снова работают корректно.
+> **Это правило не обсуждается. Нарушение ломает историю и требует ручного выравнивания.**
 
-**Что было сделано 2026-05-30:**
-- 7 записей в `schema_migrations` имели расхождение version (execution timestamp вместо file version-prefix)
-- Все 7 исправлены через UPDATE внутри транзакции (бэкап: `schema_migrations_backup_20260530`)
-- После выравнивания все 40 локальных файлов ↔ 40 remote-записей совпадают по version и name
+**Единственный допустимый способ применять миграции:**
 
-**Текущее состояние:** `supabase migration list` должен показывать 40 applied, 0 pending.
-
-**Стандартный workflow (для CI/CD и команды):**
 ```bash
-# Создать новую миграцию
-supabase migration new <name>          # создаст файл с timestamp
+# 1. Создать файл миграции (version берётся из timestamp имени файла)
+supabase migration new <name>
 
-# Применить локально
-supabase db push                       # накатит все pending-миграции
+# 2. Написать SQL в созданный файл
 
-# Синхронизировать локальные файлы с remote (если remote опережает)
-supabase db pull                       # безопасно, история выровнена
+# 3. Применить — ТОЛЬКО так:
+supabase db push
 ```
 
-**Перед любой миграцией — проверить состояние:**
+**ЗАПРЕЩЕНО для миграций:**
+- ❌ `supabase_migrations` MCP tool `apply_migration` — пишет `version = execution timestamp`, не из имени файла
+- ❌ Supabase Dashboard SQL Editor для DDL — то же самое
+- ❌ `execute_sql` с CREATE/ALTER/DROP — то же самое
+
+**Почему это критично:** `apply_migration` и SQL Editor записывают в `schema_migrations.version` реальный timestamp выполнения (например `20260529152038`), тогда как `db push` ожидает там version-prefix из имени файла (`20260529030000`). Расхождение → `db push` не видит уже применённые миграции → пытается применить повторно → `ERROR: already exists`. Выравнивание требует ручных UPDATE с транзакцией и бэкапом — трудоёмко и рискованно.
+
+**История уже была сломана и выровнена 2026-05-30:**
+7 записей исправлены через UPDATE (бэкап: `schema_migrations_backup_20260530`). Не повторять.
+
+**Текущее состояние:** 40 applied, 0 pending. Проверить:
 ```bash
 supabase migration list
-# или SQL:
-SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 5;
 ```
-
-**⚠️ Предупреждение:** если применять SQL напрямую через MCP `apply_migration` или Dashboard SQL Editor — версия в `schema_migrations` снова получит execution timestamp. Для CI/CD всегда использовать `supabase db push`.
 
 ---
 
