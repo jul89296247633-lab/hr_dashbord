@@ -39,19 +39,17 @@ supabase migration list
 
 ---
 
-### 1. Интеграционные тесты RLS + триггер
+### 1. Интеграционные тесты RLS + триггер (двухчастный блокер)
 
-**Статус: НЕ ПРОГНАНЫ АВТОМАТИЧЕСКИ** (Docker не доступен в CI по умолчанию)
+**(а) Конфиг ПОЧИНЕН (2026-05-30).** Ранее `npm run test:integration` падал с «No test files found»: главный `vitest.config.ts` исключает `src/tests/integration/**` (jsdom + DOM-setup для unit). Теперь сьют запускается отдельным [vitest.integration.config.ts](vitest.integration.config.ts) (environment `node`, без DOM-setup), скрипт `test:integration` указывает на него. Без ключей сьют **чисто скипается** (7 skipped), а не падает; на машине с Docker+ключами реально прогоняется.
 
-RLS-политики `hr_bonuses` и триггер `auto_create_bonus_on_close` **не подтверждены прогоном тестов** — только анализом кода и миграций. Без прогона RLS считается непроверенной.
-
-**Обязательный шаг перед деплоем:**
+**(б) ПРОГОН на машине с Docker — ОБЯЗАТЕЛЕН до prod.** Конфиг рабочий, но RLS/триггеры **не подтверждены прогоном** в этом окружении (нет Docker). До prod необходимо:
 
 ```bash
 # 1. Запустить Supabase локально (требует Docker)
 supabase start
 
-# 2. Убедиться, что переменные окружения установлены:
+# 2. Установить переменные окружения:
 #    SUPABASE_LOCAL_URL=http://127.0.0.1:54321
 #    SUPABASE_SERVICE_KEY=<service_role key из `supabase status`>
 #    SUPABASE_ANON_KEY=<anon key из `supabase status`>
@@ -59,8 +57,10 @@ supabase start
 # 3. Прогнать интеграционные тесты
 npm run test:integration
 
-# 4. Ожидаемый результат: Tests 6 passed (6)
+# 4. Ожидаемый результат: Tests 7 passed (7) — НЕ skipped
 ```
+
+> Если видишь «7 skipped» — ключи не заданы, RLS НЕ проверена. Зелёным считается только «passed».
 
 Файл тестов: [src/tests/integration/rls-trigger.test.ts](src/tests/integration/rls-trigger.test.ts)
 
@@ -114,6 +114,20 @@ LIMIT 15;
 - `bonus_rates_admin_only`
 - `auto_bonus_trigger`
 - `recreate_hr_bonuses`
+- `harden_rpc_grants_and_rls` — `20260530062400` (security audit: SEC-001..005)
+
+---
+
+### 6. Уязвимость зависимости `xlsx` (SEC-012) — HIGH, не закрыта
+
+`npm audit`: пакет `xlsx` имеет **HIGH** — Prototype Pollution ([GHSA-4r6h-8v6p-xvw6](https://github.com/advisories/GHSA-4r6h-8v6p-xvw6)) + ReDoS ([GHSA-5pgg-2g8v-p4x9](https://github.com/advisories/GHSA-5pgg-2g8v-p4x9)). **Фикса в npm-реестре нет.** Используется в [src/lib/templates/xlsx-parser.ts](src/lib/templates/xlsx-parser.ts) (парсинг загруженных шаблонов онбординга, доступ — только admin).
+
+**Перед prod обязательно** одно из:
+- мигрировать на патченный SheetJS с официального CDN (`https://cdn.sheetjs.com/`), либо
+- перейти на поддерживаемый форк (`@e965/xlsx`), либо
+- задокументировать принятый риск (вход ограничен ролью admin, файлы доверенные).
+
+> `npm audit fix --force` НЕ применять — тянет breaking `next@9`. Также: 2× moderate `postcss <8.5.10` — build-time, runtime-риска нет.
 
 ---
 
@@ -128,6 +142,16 @@ LIMIT 15;
 
 ## 🟢 ИНФОРМАЦИОННО
 
+- **Security backlog (аудит 2026-05-30):**
+  - **SEC-006** (next commit) — security headers в `next.config.ts` (CSP report-only / X-Frame-Options / HSTS / nosniff / Referrer-Policy).
+  - **SEC-007** (next commit) — OAuth HH: `state` сделать session-bound nonce (httpOnly-cookie), сверять в callback.
+  - **SEC-008** (next commit) — убрать ~15 debug `console.log` из `src/app/api/auth/hh/callback/route.ts`.
+  - **SEC-009** (backlog) — нет app-level rate-limiting логина; полагаемся на встроенные лимиты Supabase Auth. Рассмотреть throttle (Upstash) при росте.
+  - **SEC-010** (backlog) — extensions `moddatetime` / `pg_trgm` в схеме `public`; вынести в `extensions` (low).
+  - **SEC-011** (dashboard) — включить Leaked Password Protection (Supabase Auth → Password security).
+  - **SEC-012** (HIGH-блокер) — уязвимость `xlsx`, см. БЛОКЕР §6 выше.
+  - SEC-001..005 — закрыты миграцией `20260530062400_harden_rpc_grants_and_rls` (REVOKE/DROP/search_path + внутр. авторизация compute_manager_bonuses).
+- **TODO (backlog):** `sync_logs` update в success-path у `POST /api/sync/hh` и `POST /api/sync/mango` — fire-and-forget. Если упадёт, лог навсегда в статусе `running`. Частично прикрыто stale-lock recovery (10 мин таймаут). Не блокер, но нужно добавить проверку ошибки + fallback-логирование.
 - Триггер `trg_auto_create_bonus_on_close` — BEFORE UPDATE на `vacancies`. Работает для всех путей: ручное закрытие, API, sheets-sync.
 - `bonus_rates` INSERT/UPDATE/DELETE — только `role='admin'` (ужесточено с head/admin в миграции `20260530020000`).
 - `hr_bonuses` UNIQUE(vacancy_id) — один бонус на закрытие. Повторное закрытие (closed→active→closed) дублей не создаёт.
