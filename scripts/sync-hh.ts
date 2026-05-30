@@ -389,8 +389,41 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // ── Lock: предотвращаем параллельный запуск ───────────────────────────────
+  // ── Stale lock recovery ────────────────────────────────────────────────────
+  // Граница: логи с started_at < lockSince считаются мёртвыми (процесс убит/VPS перезагрузка).
+  // Текущий lock (.gte started_at) их и так не видит → новый прогон запустится в любом случае.
+  // Но они висят как 'running' в UI — закрываем их явно.
   const lockSince = new Date(Date.now() - LOCK_WINDOW_MIN * 60 * 1000).toISOString();
+
+  const { data: staleRuns } = await db
+    .from('sync_logs')
+    .select('id, started_at')
+    .eq('source', 'hh')
+    .eq('status', 'running')
+    .lt('started_at', lockSince); // старше LOCK_WINDOW_MIN — зависший
+
+  if (staleRuns && staleRuns.length > 0) {
+    for (const stale of staleRuns) {
+      console.warn(`[sync-hh] STALE_LOCK_RECOVERED id=${stale.id} started=${stale.started_at}`);
+      await db.from('sync_logs').update({
+        status:        'error',
+        error_code:    'STALE_LOCK_RECOVERED',
+        error_message: 'Процесс завершился аварийно (убит или VPS перезагрузка). Lock восстановлен автоматически.',
+        finished_at:   new Date().toISOString(),
+      }).eq('id', stale.id);
+
+      await logError({
+        db,
+        source:     'cron_sync_hh',
+        severity:   'warn',
+        error_code: 'STALE_LOCK_RECOVERED',
+        message:    `sync_log id=${stale.id} (started=${stale.started_at}) — зависший процесс, помечен error.`,
+      });
+    }
+  }
+
+  // ── Lock: блокируем ПАРАЛЛЕЛЬНЫЙ (свежий) запуск ────────────────────────
+  // Ищем только логи последних LOCK_WINDOW_MIN минут. Stale — уже закрыты выше.
   const { data: running } = await db
     .from('sync_logs')
     .select('id, started_at')

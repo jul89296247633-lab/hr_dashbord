@@ -158,6 +158,37 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  // ── Stale lock recovery ────────────────────────────────────────────────────
+  // refresh-hh-tokens обычно занимает < 1 мин. 15 мин = явно мёртвый лок.
+  const REFRESH_LOCK_MIN = 15;
+  const refreshLockSince = new Date(Date.now() - REFRESH_LOCK_MIN * 60 * 1000).toISOString();
+
+  const { data: staleRuns } = await db
+    .from('sync_logs')
+    .select('id, started_at')
+    .eq('source', 'refresh-hh-tokens')
+    .eq('status', 'running')
+    .lt('started_at', refreshLockSince);
+
+  if (staleRuns && staleRuns.length > 0) {
+    for (const stale of staleRuns) {
+      console.warn(`[refresh-hh-tokens] STALE_LOCK_RECOVERED id=${stale.id} started=${stale.started_at}`);
+      await db.from('sync_logs').update({
+        status:        'error',
+        error_code:    'STALE_LOCK_RECOVERED',
+        error_message: 'Процесс завершился аварийно (убит или VPS перезагрузка). Lock восстановлен автоматически.',
+        finished_at:   new Date().toISOString(),
+      }).eq('id', stale.id);
+      await logError({
+        db,
+        source:     'cron_refresh_hh',
+        severity:   'warn',
+        error_code: 'STALE_LOCK_RECOVERED',
+        message:    `sync_log id=${stale.id} (started=${stale.started_at}) — зависший процесс, помечен error.`,
+      });
+    }
+  }
+
   // ── Создаём запись sync_logs ───────────────────────────────────────────────
   const { data: syncLog, error: syncLogError } = await db
     .from('sync_logs')
