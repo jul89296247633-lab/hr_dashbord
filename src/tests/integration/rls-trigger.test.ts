@@ -27,8 +27,13 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY ?? '';
 const SKIP = !SERVICE_KEY || !ANON_KEY;
 const describeOrSkip = SKIP ? describe.skip : describe;
 
-// Service-role клиент (обходит RLS) — только для setup/teardown
-const admin = createClient(LOCAL_URL, SERVICE_KEY);
+// Service-role клиент (обходит RLS) — только для setup/teardown.
+// При SKIP (нет ключей) НЕ создаём: createClient падает на пустом ключе
+// ещё на этапе импорта модуля, до describe.skip. Все обращения к `admin`
+// — внутри beforeAll/afterAll/тестов, которые при SKIP не выполняются.
+const admin = SKIP
+  ? (null as unknown as ReturnType<typeof createClient>)
+  : createClient(LOCAL_URL, SERVICE_KEY);
 
 // ── Тестовые данные ──────────────────────────────────────────────────────────
 let managerUserId = '';
