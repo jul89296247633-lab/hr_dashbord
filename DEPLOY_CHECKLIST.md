@@ -6,53 +6,37 @@
 
 ## 🔴 БЛОКЕРЫ РЕЛИЗА
 
-### 0. КРИТИЧЕСКИ ВАЖНО: Workflow миграций — НЕ ИСПОЛЬЗОВАТЬ db push / db pull
+### 0. Workflow миграций — история выровнена 2026-05-30, db push/pull безопасны
 
-> **Это правило нельзя обойти. Нарушение ломает историю миграций необратимо.**
+> **История миграций выровнена.** `supabase db push` и `supabase db pull` снова работают корректно.
 
-**Причина:** Часть миграций была применена через Supabase MCP / SQL Editor — они записались в `supabase_migrations.schema_migrations` с timestamp исполнения (`20260529152038`…), а не с version-prefix из имени файла (`20260529030000`…). Расхождение версий постоянное.
+**Что было сделано 2026-05-30:**
+- 7 записей в `schema_migrations` имели расхождение version (execution timestamp вместо file version-prefix)
+- Все 7 исправлены через UPDATE внутри транзакции (бэкап: `schema_migrations_backup_20260530`)
+- После выравнивания все 40 локальных файлов ↔ 40 remote-записей совпадают по version и name
 
-**Следствие:**
-- `supabase db push` не найдёт эти версии в remote, решит что они не применены, попытается накатить повторно → ошибки `already exists`, дубли объектов
-- `supabase db pull` создаст локальные файлы с чужими timestamp-именами — дубли существующих локальных файлов
+**Текущее состояние:** `supabase migration list` должен показывать 40 applied, 0 pending.
 
-**Единственный допустимый workflow для всех миграций:**
+**Стандартный workflow (для CI/CD и команды):**
+```bash
+# Создать новую миграцию
+supabase migration new <name>          # создаст файл с timestamp
 
-```
-1. Написать SQL → сохранить в supabase/migrations/YYYYMMDDHHMMSS_name.sql
-2. Применить SQL напрямую:
-   - Supabase Dashboard → SQL Editor  ← предпочтительно
-   - ИЛИ MCP tool: apply_migration
-3. Зарегистрировать в таблице миграций:
+# Применить локально
+supabase db push                       # накатит все pending-миграции
 
-   INSERT INTO supabase_migrations.schema_migrations (version, name)
-   VALUES ('<version из имени файла>', '<name без .sql>')
-   ON CONFLICT (version) DO NOTHING;
-
-4. Проверить: supabase migration list (CLI) или
-   SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 5;
+# Синхронизировать локальные файлы с remote (если remote опережает)
+supabase db pull                       # безопасно, история выровнена
 ```
 
-**Перед ЛЮБОЙ новой миграцией** — убедиться в текущем состоянии:
-```sql
-SELECT version, name
-FROM supabase_migrations.schema_migrations
-ORDER BY version DESC
-LIMIT 10;
+**Перед любой миграцией — проверить состояние:**
+```bash
+supabase migration list
+# или SQL:
+SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 5;
 ```
 
-**Известное расхождение (зафиксировано 2026-05-30):**
-
-| Локальный файл | Version в remote | Статус |
-|---|---|---|
-| `20260529030000_staffing_plan_occupied_units` | `20260529152038` | ✅ применена, версия расходится |
-| `20260529040000_drop_hr_bonuses_table` | `20260529192420` | ✅ применена, версия расходится |
-| `20260530000000_recreate_hr_bonuses` | `20260529194910` | ✅ применена, версия расходится |
-| `20260530010000_auto_bonus_trigger` | `20260529194951` | ✅ применена, версия расходится |
-| `20260530020000_bonus_rates_admin_only` | `20260529195004` | ✅ применена, версия расходится |
-| `20260530030000_bonus_rates_audit_trigger` | `20260529195941` | ✅ применена, версия расходится |
-
-Эти расхождения уже зафиксированы и не мешают работе — важно не усугублять новыми.
+**⚠️ Предупреждение:** если применять SQL напрямую через MCP `apply_migration` или Dashboard SQL Editor — версия в `schema_migrations` снова получит execution timestamp. Для CI/CD всегда использовать `supabase db push`.
 
 ---
 
