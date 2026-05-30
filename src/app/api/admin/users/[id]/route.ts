@@ -96,7 +96,17 @@ export async function PATCH(
       .eq('id', id)
       .select('id, full_name, role, is_active, mango_extension, updated_at')
       .maybeSingle();
-    if (error) throw new ApiError(500, 'DB_ERROR', error.message);
+    if (error) {
+      // 23505 = unique_violation: добавочный номер Mango уже занят другим менеджером
+      if (error.code === '23505' && error.message.includes('mango_ext')) {
+        return apiError(
+          'MANGO_EXTENSION_TAKEN',
+          `Добавочный номер ${patch.mango_extension ?? ''} уже используется другим менеджером`,
+          409,
+        );
+      }
+      throw new ApiError(500, 'DB_ERROR', error.message);
+    }
     if (!data) return apiError('USER_NOT_FOUND', 'Пользователь не найден', 404);
 
     return apiSuccess({ data });

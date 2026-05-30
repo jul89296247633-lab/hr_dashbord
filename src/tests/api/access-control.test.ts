@@ -41,7 +41,8 @@ function asUser(role: AuthUser['role']): AuthUser {
 }
 
 function req(url: string, opts?: RequestInit) {
-  return new NextRequest(`http://localhost${url}`, opts);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new NextRequest(`http://localhost${url}`, opts as any);
 }
 
 // Суpabase-клиент, возвращающий пустой успешный ответ для любого запроса
