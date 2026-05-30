@@ -14,6 +14,8 @@ import {
   ScrollText,
   Rocket,
   FileCheck,
+  List,
+  Tag,
   type LucideIcon,
 } from 'lucide-react';
 import type { Role } from '@/types';
@@ -41,6 +43,7 @@ export function navItemsForRole(role: Role): NavItem[] {
       { label: 'Дашборд', href: '/dashboard', icon: LayoutDashboard },
       { label: 'Подразделения', href: '/dashboard/divisions', icon: Building2 },
       { label: 'Штатное расписание', href: '/staffing/plan', icon: ClipboardList },
+      { label: 'Все вакансии', href: '/vacancies/admin', icon: List },
       { label: 'Заявки', href: '/requests', icon: FileCheck },
     ];
   }
@@ -51,6 +54,7 @@ export function navItemsForRole(role: Role): NavItem[] {
     { label: 'Эффективность', href: '/dashboard/efficiency', icon: TrendingUp },
     { label: 'Подразделения', href: '/dashboard/divisions', icon: Building2 },
     { label: 'Вакансии', href: '/vacancies', icon: Briefcase },
+    { label: 'Все вакансии', href: '/vacancies/admin', icon: List },
     { label: 'Заявки', href: '/requests', icon: FileCheck },
     { label: 'План', href: '/plan', icon: Target },
     { label: 'Штатное расписание', href: '/staffing/plan', icon: ClipboardList },
@@ -61,6 +65,7 @@ export function navItemsForRole(role: Role): NavItem[] {
 
   if (role === 'admin') {
     items.push(
+      { label: 'Тарифы бонусов', href: '/admin/bonuses', icon: Tag },
       { label: 'Пользователи', href: '/admin/users', icon: Users },
       { label: 'Интеграции', href: '/admin/integrations', icon: Plug },
       { label: 'Логи', href: '/admin/logs', icon: ScrollText },
