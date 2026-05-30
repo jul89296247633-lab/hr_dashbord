@@ -105,7 +105,8 @@ export function EfficiencyClient() {
       // периода страницы: они начисляются по факту найма за месяц (SPEC §5.3).
       const altPeriod = period === 'today' ? 'week' : period;
       const [t, p, b] = await Promise.all([
-        fetchData<TeamResponse>(`/api/dashboard/team?period=${period}`),
+        // hh_only=1 → на «Эффективности» только менеджеры с HH-привязкой (hh_manager_id).
+        fetchData<TeamResponse>(`/api/dashboard/team?period=${period}&hh_only=1`),
         fetchData<PolitenessData>(`/api/stats/politeness?period=${altPeriod}`),
         fetchData<BonusSummary[]>(`/api/bonuses/summary?period=month`),
       ]);

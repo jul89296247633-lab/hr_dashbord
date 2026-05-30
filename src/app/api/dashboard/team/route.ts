@@ -47,6 +47,8 @@ export async function GET(request: NextRequest) {
     // MonthPicker: ?month=YYYY-MM переопределяет month-окно. При period=today/week
     // параметр игнорируется (тогда границы задаёт getPeriodRange).
     const monthParam = request.nextUrl.searchParams.get('month') ?? undefined;
+    // «Эффективность менеджеров» шлёт hh_only=1 → показываем только привязанных к HH.
+    const hhOnly = request.nextUrl.searchParams.get('hh_only') === '1';
     const usingPickedMonth = period === 'month' && monthParam !== undefined;
     const monthWindow = usingPickedMonth ? monthRangeFromYM(monthParam) : null;
     const { from, to } = monthWindow ?? getPeriodRange(period);
@@ -58,10 +60,14 @@ export async function GET(request: NextRequest) {
     // Активные менеджеры.
     // Включаем уволенных: их историческая статистика и бейдж «Уволен» нужны в UI
     // (бизнес-правило EC-08). Фильтрация по `is_active` убрана.
-    const { data: managers, error: managersError } = await db
+    let managersQuery = db
       .from('user_profiles')
       .select('id, full_name, is_active')
       .eq('role', 'manager');
+    // hh_only: только менеджеры с фактической HH-привязкой (hh_manager_id IS NOT NULL).
+    // Заведённые без HH-аккаунта на «Эффективности» не показываются.
+    if (hhOnly) managersQuery = managersQuery.not('hh_manager_id', 'is', null);
+    const { data: managers, error: managersError } = await managersQuery;
     if (managersError) throw new ApiError(500, 'DB_ERROR', managersError.message);
     const managerIds = (managers ?? []).map((m) => m.id);
 
