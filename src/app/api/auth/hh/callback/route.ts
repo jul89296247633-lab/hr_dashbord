@@ -24,16 +24,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = request.nextUrl;
-    console.log('[hh-callback] step=start', {
-      hasCode: !!searchParams.get('code'),
-      hasState: !!searchParams.get('state'),
-      hasError: !!searchParams.get('error'),
-    });
 
     // HH вернул ошибку (пользователь отказал в авторизации)
     const hhError = searchParams.get('error');
     if (hhError) {
-      console.log('[hh-callback] step=hh_error', { hhError });
       return redirect(`${INTEGRATIONS}?error=hh_denied`);
     }
 
@@ -41,30 +35,21 @@ export async function GET(request: NextRequest) {
     const state = searchParams.get('state'); // manager_id
 
     if (!code || !state || !uuidSchema.safeParse(state).success) {
-      console.log('[hh-callback] step=invalid_params', { code: !!code, state, validUuid: state ? uuidSchema.safeParse(state).success : false });
       return redirect(`${INTEGRATIONS}?error=hh_invalid`);
     }
 
     const managerId = state;
-    console.log('[hh-callback] step=params_ok', { managerId });
 
     // ── Конфигурация ──────────────────────────────────────────────────────────
     const clientId = process.env.HH_CLIENT_ID?.trim();
     const clientSecret = process.env.HH_CLIENT_SECRET?.trim();
     const redirectUri = process.env.HH_REDIRECT_URI?.trim();
-    console.log('[hh-callback] step=env', {
-      hasClientId: !!clientId,
-      hasClientSecret: !!clientSecret,
-      hasRedirectUri: !!redirectUri,
-    });
 
     if (!clientId || !clientSecret || !redirectUri) {
-      console.error('[hh-callback] step=env_missing');
       return redirect(`${INTEGRATIONS}?error=hh_config`);
     }
 
     // ── Обмен code на токены ──────────────────────────────────────────────────
-    console.log('[hh-callback] step=token_exchange_start');
     const tokenRes = await fetch('https://hh.ru/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -76,11 +61,8 @@ export async function GET(request: NextRequest) {
         redirect_uri: redirectUri,
       }),
     });
-    console.log('[hh-callback] step=token_exchange_done', { status: tokenRes.status, ok: tokenRes.ok });
 
     if (!tokenRes.ok) {
-      const errText = await tokenRes.text().catch(() => '');
-      console.error('[hh-callback] step=token_exchange_failed', { status: tokenRes.status, body: errText.slice(0, 200) });
       return redirect(`${INTEGRATIONS}?error=hh_oauth`);
     }
 
@@ -89,12 +71,10 @@ export async function GET(request: NextRequest) {
       refresh_token: string;
       expires_in: number;
     };
-    console.log('[hh-callback] step=token_received', { expires_in: tokenData.expires_in, hasAccessToken: !!tokenData.access_token, hasRefreshToken: !!tokenData.refresh_token });
 
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
 
     // ── Сохранение в БД через service_role ───────────────────────────────────
-    console.log('[hh-callback] step=db_update_start', { managerId });
     const db = createAdminClient();
     const { data: profile, error: dbError } = await db
       .from('user_profiles')
@@ -106,20 +86,19 @@ export async function GET(request: NextRequest) {
       .eq('id', managerId)
       .select('id, full_name')
       .maybeSingle();
-    console.log('[hh-callback] step=db_update_done', { profile: profile?.full_name ?? null, dbError: dbError?.message ?? null });
 
     if (dbError) {
       throw new ApiError(500, 'DB_ERROR', dbError.message);
     }
     if (!profile) {
-      console.error('[hh-callback] step=manager_not_found', { managerId });
       return redirect(`${INTEGRATIONS}?error=hh_manager_not_found`);
     }
 
-    console.log('[hh-callback] step=success', { managerId, fullName: profile.full_name });
     return redirect(`${INTEGRATIONS}?connected=1`);
   } catch (err) {
-    console.error('[hh-callback] step=catch', err);
+    // Без PII (managerId/full_name) — только причина сбоя, для отладки прод-ошибок
+    // OAuth (протухший code, смена redirect_uri и т.д.).
+    console.error('[hh-callback] error', err instanceof Error ? err.message : err);
     return redirect(`${INTEGRATIONS}?error=hh_oauth`);
   }
 }
