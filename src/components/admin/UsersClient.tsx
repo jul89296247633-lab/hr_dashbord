@@ -35,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ImpersonateButton } from '@/components/shared/ImpersonateButton';
 
 interface UserRow {
   id: string;
@@ -137,6 +138,9 @@ export function UsersClient() {
                   </span>
                 </TableCell>
                 <TableCell className="flex justify-end gap-1">
+                  {u.role === 'manager' && u.is_active && (
+                    <ImpersonateButton managerId={u.id} managerName={u.full_name} />
+                  )}
                   <EditDialog user={u} onDone={load} />
                   <Button variant="ghost" size="icon" onClick={() => toggleActive(u)} aria-label="Переключить активность">
                     <Power className="size-4" />

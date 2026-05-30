@@ -161,7 +161,11 @@ export function DashboardClient({ role }: { role: Role }) {
           </section>
 
           {canSeeTeam && team && (
-            <TeamTable managers={team.managers ?? []} politenessById={politenessById} />
+            <TeamTable
+              managers={team.managers ?? []}
+              politenessById={politenessById}
+              canImpersonate={canSeeTeam}
+            />
           )}
         </>
       )}

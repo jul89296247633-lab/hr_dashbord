@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/table';
 import type { ManagerStatus } from '@/types';
 import type { TeamManagerKpi } from '@/components/dashboard/types';
+import { ImpersonateButton } from '@/components/shared/ImpersonateButton';
 
 const STATUS: Record<ManagerStatus, { label: string; className: string }> = {
   on_track: { label: 'В плане', className: 'bg-green-100 text-green-800' },
@@ -29,9 +30,11 @@ function ivColor(iv: number): string {
 export function TeamTable({
   managers,
   politenessById,
+  canImpersonate = false,
 }: {
   managers: TeamManagerKpi[];
   politenessById: Record<string, number | null>;
+  canImpersonate?: boolean;
 }) {
   const top = managers.slice(0, 5);
 
@@ -56,6 +59,7 @@ export function TeamTable({
               <TableHead>Закрыто вакансий</TableHead>
               <TableHead>ИВ</TableHead>
               <TableHead>Статус</TableHead>
+              {canImpersonate && <TableHead className="w-10" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -87,6 +91,13 @@ export function TeamTable({
                       {status.label}
                     </span>
                   </TableCell>
+                  {canImpersonate && (
+                    <TableCell className="text-right">
+                      {m.id && m.full_name && (
+                        <ImpersonateButton managerId={m.id} managerName={m.full_name} />
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}

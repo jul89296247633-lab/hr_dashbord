@@ -44,6 +44,33 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
+  const method = request.method;
+
+  // ── Impersonation read-only (FEATURE_SPEC_impersonation.md) ─────────────────
+  // Во время impersonation блокируем ВСЕ мутации: REST /api/* (POST/PATCH/PUT/DELETE)
+  // И Server Actions (POST на страницу с заголовком Next-Action). Control-endpoints
+  // (start/stop) — исключение. Fail-closed: cookie сам прав не даёт (overlay-гейт —
+  // реальная роль + валидная запись в БД, см. getAuthContext).
+  // Имя cookie совпадает с IMPERSONATE_COOKIE из api-helpers (middleware без серверных импортов).
+  if (request.cookies.get('impersonate_sid')?.value) {
+    const isMutatingApi =
+      path.startsWith('/api') &&
+      (method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE');
+    const isServerAction = request.headers.has('next-action');
+    const isControl =
+      path === '/api/admin/impersonate' || path === '/api/admin/impersonate/stop';
+    if ((isMutatingApi || isServerAction) && !isControl) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'IMPERSONATION_READONLY',
+            message: 'Действие недоступно в режиме просмотра (impersonation)',
+          },
+        },
+        { status: 403 },
+      );
+    }
+  }
 
   // API-маршруты не редиректим — они сами возвращают 401/403 в JSON.
   if (path.startsWith('/api')) {

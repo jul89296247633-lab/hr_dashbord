@@ -1,6 +1,20 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type { AuthUser, Role, Period, ManagerStatus } from '@/types';
+
+/** Cookie с id активной impersonation-сессии (= impersonation_logs.id). */
+export const IMPERSONATE_COOKIE = 'impersonate_sid';
+/** TTL impersonation-сессии (server-authoritative). */
+const IMPERSONATE_TTL_MS = 60 * 60 * 1000; // 1 час
+
+/** Контекст авторизации: эффективная identity + реальный пользователь + флаг impersonation. */
+export interface AuthContext {
+  user: AuthUser; // эффективная identity (менеджер при impersonation)
+  realUser: AuthUser; // всегда реальный вошедший (admin/head)
+  impersonating: boolean;
+}
 
 /**
  * Общие хелперы API-слоя: авторизация, проверка ролей, единый формат ответов.
@@ -36,7 +50,7 @@ export function apiSuccess<T>(data: T, status = 200): NextResponse {
  * @throws ApiError 401 UNAUTHORIZED — нет валидной сессии / профиля.
  * @throws ApiError 403 ACCOUNT_DISABLED — профиль деактивирован (is_active=false).
  */
-export async function getAuthUser(): Promise<AuthUser> {
+export async function getAuthContext(): Promise<AuthContext> {
   const supabase = await createClient();
 
   // getUser() (не getSession) — проверяет токен на сервере Supabase.
@@ -63,11 +77,73 @@ export async function getAuthUser(): Promise<AuthUser> {
     throw new ApiError(403, 'ACCOUNT_DISABLED', 'Аккаунт деактивирован');
   }
 
-  return {
+  const realUser: AuthUser = {
     id: profile.id as string,
     role: profile.role as Role,
     full_name: profile.full_name as string,
   };
+
+  // ── Impersonation overlay (SEC: FEATURE_SPEC_impersonation.md) ──────────────
+  // Активен ТОЛЬКО для admin/head И при валидной незакрытой непросроченной записи
+  // в impersonation_logs. Cookie сам прав не даёт — авторитет на сервере.
+  if (realUser.role === 'admin' || realUser.role === 'head') {
+    const sid = (await cookies()).get(IMPERSONATE_COOKIE)?.value;
+    if (sid) {
+      const overlay = await resolveImpersonation(sid, realUser);
+      if (overlay) {
+        return { user: overlay, realUser, impersonating: true };
+      }
+    }
+  }
+
+  return { user: realUser, realUser, impersonating: false };
+}
+
+/**
+ * Разрешает overlay-identity по id сессии. Возвращает менеджера, только если:
+ * запись принадлежит этому impersonator'у, не закрыта, не просрочена (TTL),
+ * а цель — активный пользователь с role='manager'. Иначе null.
+ */
+async function resolveImpersonation(sid: string, realUser: AuthUser): Promise<AuthUser | null> {
+  const db = createAdminClient();
+  const { data: sess } = await db
+    .from('impersonation_logs')
+    .select('impersonator_id, target_manager_id, started_at, ended_at')
+    .eq('id', sid)
+    .maybeSingle();
+
+  if (
+    !sess ||
+    sess.impersonator_id !== realUser.id ||
+    sess.ended_at !== null ||
+    Date.now() - new Date(sess.started_at).getTime() >= IMPERSONATE_TTL_MS
+  ) {
+    return null;
+  }
+
+  const { data: target } = await db
+    .from('user_profiles')
+    .select('id, role, full_name, is_active')
+    .eq('id', sess.target_manager_id)
+    .single();
+
+  if (!target || target.role !== 'manager' || !target.is_active) {
+    return null;
+  }
+
+  return {
+    id: target.id as string,
+    role: target.role as Role,
+    full_name: target.full_name as string,
+  };
+}
+
+/**
+ * Возвращает эффективную identity (менеджера при активной impersonation).
+ * Обёртка над getAuthContext — обратносовместима со всеми существующими роутами.
+ */
+export async function getAuthUser(): Promise<AuthUser> {
+  return (await getAuthContext()).user;
 }
 
 /**
