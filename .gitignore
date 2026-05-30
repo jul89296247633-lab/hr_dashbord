@@ -31,3 +31,6 @@ yarn-error.log*
 ~$*.pptx
 ~$*.docx
 ~$*.xlsx
+
+# supabase CLI temp-артефакты (версия CLI и пр., не нужно в гите)
+supabase/.temp/
