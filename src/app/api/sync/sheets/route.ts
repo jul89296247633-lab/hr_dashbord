@@ -111,7 +111,7 @@ export async function POST() {
 
       if (!userProfileId) skippedManagers.push(name);
 
-      await db.from('hr_manager_syncs').upsert(
+      const { error: syncUpsertErr } = await db.from('hr_manager_syncs').upsert(
         {
           sheet_full_name: name,
           user_profile_id: userProfileId,
@@ -121,6 +121,7 @@ export async function POST() {
         },
         { onConflict: 'sheet_full_name' },
       );
+      if (syncUpsertErr) throw new ApiError(500, 'DB_ERROR', `hr_manager_syncs upsert: ${syncUpsertErr.message}`);
     }
 
     // ── Data → vacancies (upsert ВСЕ) + hired_employees (закрытые / стажировка) ─
@@ -188,7 +189,7 @@ export async function POST() {
       // даты нет. Берём последний день месяца 2026 года (см. MONTH_MAP внизу).
       const closedDate =
         parseSheetDate(row.values['Дата закрытия'] ?? '') ??
-        parseClosedMonth(row.values['Месяц закрытия']);
+        parseClosedMonth(row.values['Месяц закрытия'], openedAt);
       const statusCellRaw = (row.values['Статус'] ?? '').toLowerCase().trim();
       const isClosed = statusCellRaw === 'закрыта';
       // SPEC §5.3: «стажировка» — промежуточный этап. Вакансия НЕ закрывается.
@@ -290,7 +291,7 @@ export async function POST() {
         const heStatus = isProbation ? 'probation' : 'hired';
         const hiredDate =
           closedDate ?? openedAt ?? new Date().toISOString().slice(0, 10);
-        await db.from('hired_employees').upsert(
+        const { error: heUpsertErr } = await db.from('hired_employees').upsert(
           {
             sheet_row_id: row.rowIndex,
             vacancy_id: vacancyId,
@@ -303,6 +304,7 @@ export async function POST() {
           },
           { onConflict: 'sheet_row_id' },
         );
+        if (heUpsertErr) throw new ApiError(500, 'DB_ERROR', `hired_employees upsert: ${heUpsertErr.message}`);
         if (isProbation) probation += 1;
         else closed += 1;
       }
@@ -333,13 +335,14 @@ export async function POST() {
       const amountKopecks = rublesToKopecks(amountRaw);
       if (position.length < 2 || amountKopecks <= 0) continue;
 
-      await db.from('bonus_rates').upsert(
+      const { error: rateUpsertErr } = await db.from('bonus_rates').upsert(
         {
           position_name: position,
           amount_kopecks: amountKopecks,
         },
         { onConflict: 'position_name' },
       );
+      if (rateUpsertErr) throw new ApiError(500, 'DB_ERROR', `bonus_rates upsert: ${rateUpsertErr.message}`);
       ratesUpserted += 1;
     }
 
@@ -466,15 +469,24 @@ const MONTH_MAP: Record<string, number> = {
 };
 
 /** Fallback для «Месяц закрытия»: «май» → '2026-05-31' (последний день месяца).
- *  Год хардкод 2026 — лист Data в этом формате ведётся для текущего года. */
-function parseClosedMonth(value: string | undefined): string | null {
+ *  Год определяется по дате открытия вакансии: если месяц закрытия раньше месяца
+ *  открытия — вакансия перешла через границу года (year+1). Без openedAt — текущий год. */
+function parseClosedMonth(value: string | undefined, openedAt: string | null): string | null {
   const raw = (value ?? '').toLowerCase().trim();
   if (!raw) return null;
   const month = MONTH_MAP[raw];
   if (!month) return null;
-  // new Date(2026, month, 0) = последний день предыдущего месяца, т.е. месяца `month`.
-  const lastDay = new Date(2026, month, 0).getDate();
-  return `2026-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  let year: number;
+  if (openedAt) {
+    const openedYear = Number(openedAt.slice(0, 4));
+    const openedMonth = Number(openedAt.slice(5, 7));
+    year = month < openedMonth ? openedYear + 1 : openedYear;
+  } else {
+    year = new Date().getFullYear();
+  }
+  // new Date(year, month, 0) = последний день месяца `month`.
+  const lastDay = new Date(year, month, 0).getDate();
+  return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }
 
 // (transliterate / emailFromName / provisionManager переехали в

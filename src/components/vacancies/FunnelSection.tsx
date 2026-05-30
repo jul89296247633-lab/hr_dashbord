@@ -5,6 +5,7 @@ import { ChevronRight, Clock, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
+import type { FunnelStage } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,11 +30,6 @@ const STAGE_TINT: Record<string, string> = {
   interns: 'border-amber-300 bg-amber-50 text-amber-900',
 };
 
-interface FunnelStage {
-  stage: string;
-  count: number;
-  conversion_pct: number | null;
-}
 interface FunnelData {
   funnel: FunnelStage[];
   last_synced_at: string | null;

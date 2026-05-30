@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -261,7 +261,7 @@ export function BonusesClient({ role }: { role: Role }) {
                 </TableHeader>
                 <TableBody>
                   {groups.map((g) => (
-                    <>
+                    <Fragment key={g.manager?.id ?? 'no-manager'}>
                       {g.rows.map((b, i) => (
                         <TableRow key={b.id}>
                           <TableCell className={cn('font-medium', i > 0 && 'text-muted-foreground')}>
@@ -291,7 +291,7 @@ export function BonusesClient({ role }: { role: Role }) {
                         <TableCell className="text-right tabular-nums">{formatKopecks(g.subtotal)}</TableCell>
                         {canManage && <TableCell />}
                       </TableRow>
-                    </>
+                    </Fragment>
                   ))}
                   <TableRow className="bg-muted/60 font-bold">
                     <TableCell colSpan={canManage ? 4 : 4} className="text-right">Итого</TableCell>
