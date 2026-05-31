@@ -103,6 +103,8 @@ export type Database = {
           approved_by: string | null;
           approved_at: string | null;
           rejection_reason: string | null;
+          position_group_id: string | null;
+          queue_index: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -129,6 +131,8 @@ export type Database = {
           approved_by?: string | null;
           approved_at?: string | null;
           rejection_reason?: string | null;
+          position_group_id?: string | null;
+          queue_index?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -155,6 +159,8 @@ export type Database = {
           approved_by?: string | null;
           approved_at?: string | null;
           rejection_reason?: string | null;
+          position_group_id?: string | null;
+          queue_index?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -280,7 +286,8 @@ export type Database = {
       hired_employees: {
         Row: {
           id: string;
-          sheet_row_id: number;
+          sheet_row_id: number | null;
+          source: string; // 'sheets' | 'app'
           vacancy_id: string | null;
           position_name: string;
           hired_date: string;
@@ -293,7 +300,8 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          sheet_row_id: number;
+          sheet_row_id?: number | null;
+          source?: string;
           vacancy_id?: string | null;
           position_name: string;
           hired_date: string;
@@ -306,7 +314,8 @@ export type Database = {
         };
         Update: {
           id?: string;
-          sheet_row_id?: number;
+          sheet_row_id?: number | null;
+          source?: string;
           vacancy_id?: string | null;
           position_name?: string;
           hired_date?: string;

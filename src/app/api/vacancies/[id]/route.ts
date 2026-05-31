@@ -114,10 +114,16 @@ export async function PATCH(
       return apiError('VALIDATION_ERROR', parsed.error.issues[0].message, 422);
     }
 
+    // EC-11: перевод в 'closed' без даты → closed_at=today (триггеры/метрики ждут дату).
+    const patch: typeof parsed.data & { closed_at?: string | null } = { ...parsed.data };
+    if (patch.status === 'closed' && patch.closed_at === undefined) {
+      patch.closed_at = new Date().toISOString().slice(0, 10);
+    }
+
     const supabase = await createClient();
     const { data, error } = await supabase
       .from('vacancies')
-      .update(parsed.data)
+      .update(patch)
       .eq('id', id)
       .select('*')
       .maybeSingle();

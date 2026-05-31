@@ -25,6 +25,7 @@ interface RequestRow {
   requested_by: string | null;
   opened_at: string;
   created_at: string;
+  positions_count: number | null;
   manager: { id: string; full_name: string } | null;
 }
 
@@ -183,6 +184,7 @@ export function VacancyRequestList({
           requestId={activateTarget.id}
           confidentiality={activateTarget.confidentiality}
           title={activateTarget.title}
+          positionsCount={activateTarget.positions_count ?? 1}
           onActivated={() => { setActivateTarget(null); onRefresh(); }}
         />
       )}

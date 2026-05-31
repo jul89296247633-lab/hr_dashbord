@@ -41,7 +41,7 @@ export type ActivityUpsertInput = z.infer<typeof activityUpsertSchema>;
 /** Query-параметры GET /api/vacancies. */
 export const vacancyListQuerySchema = z.object({
   status: z
-    .enum(['active', 'paused', 'closed', 'draft', 'all'])
+    .enum(['active', 'probation', 'paused', 'closed', 'cancelled', 'draft', 'all'])
     .default('active'),
   // manager_id допустим только для head/admin/executive; проверка роли — в роуте.
   manager_id: z.string().uuid('Некорректный UUID менеджера').optional(),
@@ -55,7 +55,10 @@ export type VacancyListQuery = z.infer<typeof vacancyListQuerySchema>;
 /** UUID-параметр пути (например, /api/vacancies/[id]). */
 export const uuidSchema = z.string().uuid();
 
-const vacancyStatusSchema = z.enum(['active', 'paused', 'closed', 'draft']);
+// status: + 'probation' (Стажировка) и 'cancelled' (Отмена ≠ paused). FEATURE_SPEC_vacancy_entry.
+const vacancyStatusSchema = z.enum(['active', 'probation', 'paused', 'closed', 'cancelled', 'draft']);
+// Приоритет вакансии (как в листе «Data»): высокий/средний/низкий или не задан.
+const vacancyPrioritySchema = z.enum(['высокий', 'средний', 'низкий']).nullable().optional();
 // HH ID — только цифры (SPEC §UI валидация формы вакансии).
 const hhVacancyIdSchema = z.string().regex(/^\d+$/, 'ID на HH.ru — только цифры');
 
@@ -67,6 +70,9 @@ export const vacancyCreateSchema = z.object({
   location: z.string().max(100).nullable().optional(),
   manager_id: z.string().uuid('Выберите ответственного менеджера'),
   hh_vacancy_id: hhVacancyIdSchema.nullable().optional(),
+  customer_name: z.string().max(200).nullable().optional(),
+  positions_count: z.number().int().min(1).max(100).optional(),
+  priority: vacancyPrioritySchema,
   opened_at: dateStringSchema.optional(),
   closed_at: dateStringSchema.nullable().optional(),
   status: vacancyStatusSchema.default('active'),
@@ -83,6 +89,9 @@ export const vacancyUpdateSchema = z
     location: z.string().max(100).nullable().optional(),
     manager_id: z.string().uuid().optional(),
     hh_vacancy_id: hhVacancyIdSchema.nullable().optional(),
+    customer_name: z.string().max(200).nullable().optional(),
+    positions_count: z.number().int().min(1).max(100).optional(),
+    priority: vacancyPrioritySchema,
     opened_at: dateStringSchema.optional(),
     closed_at: dateStringSchema.nullable().optional(),
     status: vacancyStatusSchema.optional(),
@@ -257,7 +266,7 @@ export type BonusRateUpdateInput = z.infer<typeof bonusRateUpdateSchema>;
 
 /** Query GET /api/vacancies/admin (head/admin/executive). */
 export const vacancyAdminQuerySchema = z.object({
-  status: z.enum(['active', 'paused', 'closed', 'draft', 'all']).default('all'),
+  status: z.enum(['active', 'probation', 'paused', 'closed', 'cancelled', 'draft', 'all']).default('all'),
   type: z.enum(['open', 'confidential', 'all']).default('all'),
   city: z.string().max(100).optional(),
   manager_id: z.string().uuid().optional(),
@@ -347,6 +356,8 @@ export const vacancyRequestCreateSchema = z.object({
   location: z.string().max(100).nullable().optional(),
   // manager_id: кто будет работать вакансию. Nullable — можно назначить позже.
   manager_id: z.string().uuid('Некорректный UUID менеджера').nullable().optional(),
+  customer_name: z.string().max(200, 'ФИО заказчика — максимум 200 символов').nullable().optional(),
+  priority: vacancyPrioritySchema,
   opened_at: dateStringSchema,
   request_reason: z.string().max(1000, 'Причина — максимум 1000 символов').nullable().optional(),
   confidentiality: z.enum(['open', 'confidential']).default('open'),

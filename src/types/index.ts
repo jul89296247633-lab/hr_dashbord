@@ -74,7 +74,7 @@ export interface DailyActivityWithTotal extends DailyActivity {
   total_calls: number;
 }
 
-export type VacancyStatus = 'active' | 'paused' | 'closed' | 'draft';
+export type VacancyStatus = 'active' | 'probation' | 'paused' | 'closed' | 'cancelled' | 'draft';
 export type VacancyRequestStatus = 'pending' | 'approved' | 'rejected';
 
 export interface Vacancy {

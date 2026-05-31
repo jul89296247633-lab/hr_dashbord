@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('vacancies')
       .select(
-        'id, title, location, subdivision, confidentiality, status, request_status, request_reason, requested_by, approved_by, approved_at, rejection_reason, opened_at, created_at, manager_id, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
+        'id, title, location, subdivision, confidentiality, status, request_status, request_reason, requested_by, approved_by, approved_at, rejection_reason, opened_at, created_at, manager_id, positions_count, manager:user_profiles!vacancies_manager_id_fkey(id, full_name)',
         { count: 'exact' },
       )
       .eq('status', 'draft')
@@ -98,6 +98,8 @@ export async function POST(request: NextRequest) {
         department: input.department ?? null,
         subdivision: input.subdivision ?? null,
         location: input.location ?? null,
+        customer_name: input.customer_name ?? null,
+        priority: input.priority ?? null,
         manager_id: input.manager_id ?? null,
         opened_at: input.opened_at,
         status: 'draft',

@@ -48,7 +48,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-type VacancyStatus = 'active' | 'paused' | 'closed' | 'draft';
+type VacancyStatus = 'active' | 'probation' | 'paused' | 'closed' | 'cancelled' | 'draft';
 type VacancyType = 'open' | 'confidential';
 
 interface AdminVacancy {
@@ -70,14 +70,18 @@ interface AdminVacancy {
 
 const STATUS_LABELS: Record<string, string> = {
   active: 'Активна',
+  probation: 'Стажировка',
   paused: 'Пауза',
   closed: 'Закрыта',
+  cancelled: 'Отмена',
   draft: 'Черновик',
 };
 const STATUS_VARIANTS: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
+  probation: 'bg-amber-100 text-amber-900',
   paused: 'bg-yellow-100 text-yellow-800',
   closed: 'bg-slate-100 text-slate-600',
+  cancelled: 'bg-red-100 text-red-800',
   draft: 'bg-blue-100 text-blue-800',
 };
 
@@ -164,7 +168,7 @@ function VacancyStatusCell({
           </div>
         ) : (
           <div className="grid gap-1">
-            {(['active', 'paused', 'closed', 'draft'] as VacancyStatus[])
+            {(['active', 'probation', 'paused', 'closed', 'cancelled', 'draft'] as VacancyStatus[])
               .filter((s) => s !== vacancy.status)
               .map((s) => (
                 <button

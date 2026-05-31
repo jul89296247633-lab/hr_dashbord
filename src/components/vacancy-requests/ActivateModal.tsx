@@ -22,6 +22,7 @@ interface Props {
   requestId: string;
   confidentiality: 'open' | 'confidential';
   title: string;
+  positionsCount?: number;
   onActivated: () => void;
 }
 
@@ -30,7 +31,7 @@ interface Props {
  * Открытая: требует ввода hh_vacancy_id.
  * Конфиденциальная: подтверждение без HH ID — система сгенерирует internal_ref.
  */
-export function ActivateModal({ open, onOpenChange, requestId, confidentiality, title, onActivated }: Props) {
+export function ActivateModal({ open, onOpenChange, requestId, confidentiality, title, positionsCount = 1, onActivated }: Props) {
   const [hhId, setHhId] = useState('');
   const [activating, setActivating] = useState(false);
 
@@ -64,6 +65,13 @@ export function ActivateModal({ open, onOpenChange, requestId, confidentiality, 
           <DialogTitle>Активировать вакансию</DialogTitle>
           <DialogDescription className="truncate">{title}</DialogDescription>
         </DialogHeader>
+
+        {positionsCount > 1 && (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Будет создано <strong>{positionsCount}</strong> позиций одной группой (эстафета дат:
+            закрытие одной открывает дату следующей). HH ID — только у первой.
+          </p>
+        )}
 
         {confidentiality === 'open' ? (
           <div className="grid gap-2">

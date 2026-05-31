@@ -59,6 +59,12 @@ export function VacancyRequestForm({
   const [openedAt, setOpenedAt] = useState(new Date().toISOString().slice(0, 10));
   const [requestReason, setRequestReason] = useState('');
   const [confidentiality, setConfidentiality] = useState<'open' | 'confidential'>('open');
+  const [customerName, setCustomerName] = useState('');
+  const [positionsCount, setPositionsCount] = useState(1);
+  const [priority, setPriority] = useState<'' | 'высокий' | 'средний' | 'низкий'>('');
+  const [options, setOptions] = useState<{ titles: string[]; locations: string[]; subdivisions: string[] }>(
+    { titles: [], locations: [], subdivisions: [] },
+  );
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -70,7 +76,19 @@ export function VacancyRequestForm({
     setOpenedAt(new Date().toISOString().slice(0, 10));
     setRequestReason('');
     setConfidentiality('open');
+    setCustomerName('');
+    setPositionsCount(1);
+    setPriority('');
   }, [open, currentUserId, currentRole]);
+
+  // Автодополнение: уникальные значения из существующих вакансий (datalist).
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/vacancies/requests/options')
+      .then((r) => r.json())
+      .then((j) => setOptions(j.data ?? { titles: [], locations: [], subdivisions: [] }))
+      .catch(() => { /* автодополнение необязательно */ });
+  }, [open]);
 
   async function handleSubmit() {
     if (title.trim().length < 2) { toast.error('Название — минимум 2 символа'); return; }
@@ -85,11 +103,13 @@ export function VacancyRequestForm({
           title: title.trim(),
           location: location.trim() || null,
           subdivision: subdivision.trim() || null,
+          customer_name: customerName.trim() || null,
+          priority: priority || null,
           manager_id: managerId || null,
           opened_at: openedAt,
           request_reason: requestReason.trim() || null,
           confidentiality,
-          positions_count: 1,
+          positions_count: positionsCount,
         }),
       });
       const json = await res.json() as { error?: { message: string } };
@@ -125,7 +145,13 @@ export function VacancyRequestForm({
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Продавец-консультант"
               maxLength={200}
+              list="dl-titles"
             />
+            <datalist id="dl-titles">
+              {options.titles.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
           </div>
 
           {/* Город */}
@@ -137,7 +163,13 @@ export function VacancyRequestForm({
               onChange={(e) => setLocation(e.target.value)}
               placeholder="Сочи"
               maxLength={100}
+              list="dl-locations"
             />
+            <datalist id="dl-locations">
+              {options.locations.map((l) => (
+                <option key={l} value={l} />
+              ))}
+            </datalist>
             {/* Штатная сверка — переиспользуем StaffingCheckWidget из фичи 1 */}
             <StaffingCheckWidget location={location} />
           </div>
@@ -151,7 +183,54 @@ export function VacancyRequestForm({
               onChange={(e) => setSubdivision(e.target.value)}
               placeholder="Розница"
               maxLength={100}
+              list="dl-subdivisions"
             />
+            <datalist id="dl-subdivisions">
+              {options.subdivisions.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          </div>
+
+          {/* ФИО заказчика */}
+          <div className="grid gap-2">
+            <Label htmlFor="req-customer">ФИО заказчика</Label>
+            <Input
+              id="req-customer"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="Иванов Иван Иванович"
+              maxLength={200}
+            />
+          </div>
+
+          {/* Кол-во ставок + приоритет */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="req-positions">Кол-во ставок</Label>
+              <Input
+                id="req-positions"
+                type="number"
+                min={1}
+                max={100}
+                value={positionsCount}
+                onChange={(e) => setPositionsCount(Math.max(1, Number(e.target.value) || 1))}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Приоритет</Label>
+              <Select value={priority || 'none'} onValueChange={(v) => setPriority(v === 'none' ? '' : (v as 'высокий' | 'средний' | 'низкий'))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Не задан" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Не задан</SelectItem>
+                  <SelectItem value="высокий">Высокий</SelectItem>
+                  <SelectItem value="средний">Средний</SelectItem>
+                  <SelectItem value="низкий">Низкий</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Исполнитель */}
