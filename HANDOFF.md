@@ -1,10 +1,36 @@
 # HANDOFF — HR Control Tower
 
-> Сводка состояния проекта. Обновлено: **2026-05-30 (Security Review)**.
+> Сводка состояния проекта. Обновлено: **2026-05-31 (Build спеки #1 — ввод вакансий)**.
 > Источник истины — `SPEC.md`. Правила команды — `CLAUDE.md`.
 > Стек: Next.js 15 (App Router, `src/`), TypeScript, Tailwind v4, shadcn/ui, Supabase PG17, Zod.
 
 Проверка после изменений: `npx tsc --noEmit`, `npm run lint`, `next build` — все три зелёные.
+
+---
+
+## ✅ Build спеки #1 «Ввод вакансий» — РЕАЛИЗОВАНО и применено (сессия 2026-05-31)
+
+Не только спека — **рабочий код, применён в проде**. Спека: [FEATURE_SPEC_vacancy_entry.md](FEATURE_SPEC_vacancy_entry.md).
+
+**Новое в БД** (миграции `20260530165725_vacancy_entry` + `20260531035559_vacancy_entry_revoke_trigger_grants`, применены):
+- `vacancies.status` +`probation` (Стажировка) +`cancelled` (Отмена ≠ paused);
+- `vacancies.position_group_id` / `queue_index` — группа позиций для эстафеты дат;
+- `hired_employees` +`source` ('sheets'/'app'), `sheet_row_id` nullable, дедуп app по `(vacancy_id, status)`;
+- триггер `auto_hired_employee_on_status` (closed→employee/hired, probation→intern/probation; `cancelled` исключён);
+- триггер `relay_position_group_open_date` (эстафета: закрытие i-й → `opened_at` следующей active = `closed_at`; cancelled не источник/не цель);
+- `REVOKE EXECUTE` у обеих триггер-функций (FROM public/anon/authenticated, паттерн SEC-003).
+
+**Код:** форма заявки (+customer_name/positions_count/priority + datalist-автодополнение), `activate` создаёт N строк-вакансий группой при positions_count>1 (service_role, EC-13 hh_id только у первой), PATCH вакансии (probation/cancelled, closed_at=today), новый `GET /api/vacancies/requests/options`, статусы Стажировка/Отмена в AdminVacanciesClient, подсказка «N позиций».
+
+**Верификация на живых данных (прод):** эстафета 3 позиций (01.03→10.03→20.03) ✅; hired_employees source='app' (employee/probation), re-close без дубля ✅; cancelled → 0 hired, эстафету не двигает ✅; advisor чист (новых WARN нет, триггеры работают после REVOKE) ✅; tsc/lint 0. Тестовые строки вычищены.
+
+**Git:** ветка `feature/bonuses-admin-vacancies` +3 коммита (`1541c2f` summary, `d48d4a8` миграции, `f376a34` код), запушена в origin (HEAD `f376a34`). **В `main` НЕ влита** (PR — после prod-блокеров).
+
+### Открытые на следующие сессии
+- **Спека #2** — штатка розница/компания по `subdivision` + авто-укомплектованность (occupied из статусов вакансий, не вручную). Отдельный FEATURE_SPEC.
+- **Правка hh_only** → вариант Б: критерий `hh_refresh_token IS NOT NULL` (реально подключённые к HH), не `hh_manager_id`. Память: `hh-only-filter-criterion.md`.
+- **Prod-блокеры до merge в main:** SEC-012 (`xlsx` HIGH, фикса нет → форк/CDN или принять риск), RLS-интеграционные тесты (Docker-прогон, `npm run test:integration` = 7 passed), CSP report-only → enforced.
+- **Backlog:** Mango-колонка на /admin/integrations, head через HH (OAuth), favicon «Четвёртый форс», impersonation page-level overlay (fast-follow).
 
 ---
 
