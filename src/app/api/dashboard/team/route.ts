@@ -64,9 +64,11 @@ export async function GET(request: NextRequest) {
       .from('user_profiles')
       .select('id, full_name, is_active')
       .eq('role', 'manager');
-    // hh_only: только менеджеры с фактической HH-привязкой (hh_manager_id IS NOT NULL).
-    // Заведённые без HH-аккаунта на «Эффективности» не показываются.
-    if (hhOnly) managersQuery = managersQuery.not('hh_manager_id', 'is', null);
+    // hh_only: только менеджеры с РАБОЧЕЙ HH-привязкой (hh_refresh_token IS NOT NULL).
+    // refresh_token — устойчивый признак (обновляется cron); access_token/expires_at
+    // короткоживущие → список бы «мигал» между обновлениями. hh_manager_id не годится:
+    // OAuth-callback его не пишет → IS NOT NULL = пусто у всех (фильтр показывал пустой список).
+    if (hhOnly) managersQuery = managersQuery.not('hh_refresh_token', 'is', null);
     const { data: managers, error: managersError } = await managersQuery;
     if (managersError) throw new ApiError(500, 'DB_ERROR', managersError.message);
     const managerIds = (managers ?? []).map((m) => m.id);
