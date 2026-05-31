@@ -1,10 +1,36 @@
 # HANDOFF — HR Control Tower
 
-> Сводка состояния проекта. Обновлено: **2026-05-31 (Build спеки #1 — ввод вакансий)**.
+> Сводка состояния проекта. Обновлено: **2026-05-31 (Build спеки #2 — авто-укомплектованность)**.
 > Источник истины — `SPEC.md`. Правила команды — `CLAUDE.md`.
 > Стек: Next.js 15 (App Router, `src/`), TypeScript, Tailwind v4, shadcn/ui, Supabase PG17, Zod.
 
 Проверка после изменений: `npx tsc --noEmit`, `npm run lint`, `next build` — все три зелёные.
+
+---
+
+## ✅ Build спеки #2 «Авто-укомплектованность» — РЕАЛИЗОВАНО и в проде (сессия 2026-05-31)
+
+Спека: [FEATURE_SPEC_auto_staffing.md](FEATURE_SPEC_auto_staffing.md). Укомплектованность считается **из статусов привязанных вакансий**, ручной ввод «Занято» депрецирован.
+
+**Новое в БД** (миграция `20260531062025_auto_staffing`, применена `supabase db push`):
+- `vacancies.staffing_plan_id` (FK → `staffing_plan`, **ON DELETE SET NULL**) + partial-индекс; **backfill 6** точных (city+position) совпадений;
+- новый `compute_staffing_plan`: `holes = COUNT(привязанные WHERE status NOT IN ('closed','draft'))`, `occupied = GREATEST(planned_units − holes, 0)`, `vacant = holes`; **без `in_progress`**; матчинг по `staffing_plan_id` (не fuzzy); сигнатура `(text, double precision)` сохранена;
+- **SEC-001 восстановлен после DROP** — `REVOKE EXECUTE FROM PUBLIC, anon` + `GRANT TO authenticated` (без этого DROP сбрасывает ACL на дефолтный PUBLIC → регресс);
+- `occupied_units` **депрецирован, НЕ дропнут** (legacy, RPC её не читает).
+
+**Код:** `GET /api/staffing/positions` (города/должности штатки для формы); `POST /api/vacancies/requests` принимает `staffing_plan_id`, title/location берёт из строки штатки; `activate` — сиблинги мульти-позиции наследуют `staffing_plan_id`; `PATCH /api/vacancies/[id]` + admin-select — ручная привязка/отвязка; `plan`/`availability` без `in_progress`; `occupied_units` больше не пишется (`POST plan`, `diff-builder`, templates `apply` — «Занято» в импорте парсится, но в БД не идёт). UI: `VacancyRequestForm` (режим «из штатки»: город→должность→привязка / «нет в штатке»), `AdminVacanciesClient` (колонка «Штатка» + popover привязки), `StaffingPlanTable`/`CheckWidget`/`RowForm` (убраны `in_progress` и поле «Занято»).
+
+**Семантика (зафиксировано):** занято = **только `closed`** (реальный найм); любой другой активированный статус (`active`/`probation`/`paused`/`cancelled`) = **дыра** (место пустое); `draft` исключён (заявка/отклонённая — не дыра). Укомплектованность **общая** (без деления розница/компания).
+
+**Верификация на живых данных (прод):** advisor — `compute_staffing_plan` **не** anon-executable (SEC-001 цел, ACL `postgres/authenticated/service_role`), новых WARN нет; backfill = 6; формула на 6 сценариях — active=дыра (occupied=planned−1), closed→occupied растёт, **cancelled остаётся дырой (не завышает)**, GREATEST не уходит в минус, draft исключён; тестовые строки в транзакции с ROLLBACK (0 остаточных); tsc/lint 0; тест `AdminVacanciesClient` 19/19 (обновлён под второй mount-fetch `/api/staffing/plan`).
+
+**Git:** ветка `feature/bonuses-admin-vacancies`, коммит `73eb94f` (19 файлов), запушен в origin (local==origin). **В `main` НЕ влита** (PR — после prod-блокеров).
+
+### Открытые на следующие сессии
+- **Build не нужен** — фича готова и в проде.
+- **Backfill остальных ~158 вакансий** — по необходимости, ручной привязкой в `/vacancies/admin` (fuzzy осознанно не применяем).
+- **Спека #3** (Excel-импорт вакансий) — если понадобится; отдельный FEATURE_SPEC.
+- **Prod-блокеры до merge в main** — см. ниже (SEC-012 `xlsx`, RLS-интеграционные тесты под Docker, CSP report-only → enforced).
 
 ---
 
@@ -27,7 +53,7 @@
 **Git:** ветка `feature/bonuses-admin-vacancies` +3 коммита (`1541c2f` summary, `d48d4a8` миграции, `f376a34` код), запушена в origin (HEAD `f376a34`). **В `main` НЕ влита** (PR — после prod-блокеров).
 
 ### Открытые на следующие сессии
-- **Спека #2** — штатка розница/компания по `subdivision` + авто-укомплектованность (occupied из статусов вакансий, не вручную). Отдельный FEATURE_SPEC.
+- ~~**Спека #2** — авто-укомплектованность (occupied из статусов вакансий)~~ → **СДЕЛАНО** (см. секцию выше; в проде, миграция `20260531062025`). Деление розница/компания осознанно НЕ делалось — укомплектованность общая.
 - **Правка hh_only** → вариант Б: критерий `hh_refresh_token IS NOT NULL` (реально подключённые к HH), не `hh_manager_id`. Память: `hh-only-filter-criterion.md`.
 - **Prod-блокеры до merge в main:** SEC-012 (`xlsx` HIGH, фикса нет → форк/CDN или принять риск), RLS-интеграционные тесты (Docker-прогон, `npm run test:integration` = 7 passed), CSP report-only → enforced.
 - **Backlog:** Mango-колонка на /admin/integrations, head через HH (OAuth), favicon «Четвёртый форс», impersonation page-level overlay (fast-follow).
