@@ -96,7 +96,6 @@ export function StaffingCheckWidget({ location }: { location: string }) {
             <TableHead>Должность</TableHead>
             <TableHead className="text-right">План</TableHead>
             <TableHead className="text-right">Занято</TableHead>
-            <TableHead className="text-right">В работе</TableHead>
             <TableHead className="text-right">Вакантно</TableHead>
           </TableRow>
         </TableHeader>
@@ -107,9 +106,6 @@ export function StaffingCheckWidget({ location }: { location: string }) {
               <TableCell className="text-right tabular-nums">{r.planned}</TableCell>
               <TableCell className="text-muted-foreground text-right tabular-nums">
                 {r.occupied}
-              </TableCell>
-              <TableCell className="text-muted-foreground text-right tabular-nums">
-                {r.in_progress}
               </TableCell>
               <TableCell className={cn('text-right tabular-nums', vacantClass(r.vacant))}>
                 {r.vacant}

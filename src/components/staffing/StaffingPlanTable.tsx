@@ -37,7 +37,7 @@ function pluralRows(n: number): string {
 
 function sumBy(
   rows: StaffingPlanRow[],
-  key: 'planned' | 'occupied' | 'in_progress' | 'vacant',
+  key: 'planned' | 'occupied' | 'vacant',
 ): number {
   return rows.reduce((acc, r) => acc + r[key], 0);
 }
@@ -89,7 +89,6 @@ export function StaffingPlanTable({ rows, canEdit, onEdit, onDelete }: StaffingP
       count: visibleRows.length,
       planned: sumBy(visibleRows, 'planned'),
       occupied: sumBy(visibleRows, 'occupied'),
-      in_progress: sumBy(visibleRows, 'in_progress'),
       vacant: sumBy(visibleRows, 'vacant'),
     }),
     [visibleRows],
@@ -128,7 +127,6 @@ export function StaffingPlanTable({ rows, canEdit, onEdit, onDelete }: StaffingP
               <TableHead>Должность</TableHead>
               <TableHead className="text-right">План</TableHead>
               <TableHead className="text-right">Занято</TableHead>
-              <TableHead className="text-right">В работе</TableHead>
               <TableHead className="text-right">Вакантно</TableHead>
               <TableHead>Комментарий</TableHead>
               {canEdit && <TableHead className="w-24" />}
@@ -140,7 +138,6 @@ export function StaffingPlanTable({ rows, canEdit, onEdit, onDelete }: StaffingP
               const ct = {
                 planned: sumBy(cityRows, 'planned'),
                 occupied: sumBy(cityRows, 'occupied'),
-                in_progress: sumBy(cityRows, 'in_progress'),
                 vacant: sumBy(cityRows, 'vacant'),
               };
 
@@ -155,9 +152,6 @@ export function StaffingPlanTable({ rows, canEdit, onEdit, onDelete }: StaffingP
                       <TableCell className="text-right tabular-nums">{r.planned}</TableCell>
                       <TableCell className="text-muted-foreground text-right tabular-nums">
                         {r.occupied}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-right tabular-nums">
-                        {r.in_progress}
                       </TableCell>
                       <TableCell
                         className={cn('text-right tabular-nums', vacantClass(r.vacant))}
@@ -205,9 +199,6 @@ export function StaffingPlanTable({ rows, canEdit, onEdit, onDelete }: StaffingP
                       <TableCell className="text-right tabular-nums font-semibold">
                         {ct.occupied}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums font-semibold">
-                        {ct.in_progress}
-                      </TableCell>
                       <TableCell
                         className={cn(
                           'text-right tabular-nums font-semibold',
@@ -234,7 +225,6 @@ export function StaffingPlanTable({ rows, canEdit, onEdit, onDelete }: StaffingP
               </TableCell>
               <TableCell className="text-right tabular-nums">{total.planned}</TableCell>
               <TableCell className="text-right tabular-nums">{total.occupied}</TableCell>
-              <TableCell className="text-right tabular-nums">{total.in_progress}</TableCell>
               <TableCell className={cn('text-right tabular-nums', vacantClass(total.vacant))}>
                 {total.vacant}
               </TableCell>

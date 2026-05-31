@@ -52,7 +52,7 @@ export async function PATCH(
     const { data: vacancy, error: fetchError } = await supabase
       .from('vacancies')
       .select(
-        'id, status, request_status, confidentiality, requested_by, internal_ref, positions_count, opened_at, title, department, subdivision, location, customer_name, priority, manager_id',
+        'id, status, request_status, confidentiality, requested_by, internal_ref, positions_count, opened_at, title, department, subdivision, location, customer_name, priority, manager_id, staffing_plan_id',
       )
       .eq('id', id)
       .single();
@@ -170,6 +170,7 @@ export async function PATCH(
         customer_name: vacancy.customer_name ?? null,
         priority: vacancy.priority ?? null,
         manager_id: vacancy.manager_id ?? null,
+        staffing_plan_id: vacancy.staffing_plan_id ?? null,  // сиблинги той же позиции штатки
         confidentiality: vacancy.confidentiality as 'open' | 'confidential',
         status: 'active',
         opened_at: today,

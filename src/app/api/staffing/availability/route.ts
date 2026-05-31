@@ -42,7 +42,6 @@ export async function GET(request: NextRequest) {
       position_name: string;
       planned_units: number;
       occupied: number;
-      in_progress: number;
       vacant: number;
     };
 
@@ -53,7 +52,6 @@ export async function GET(request: NextRequest) {
         position_name: r.position_name,
         planned: r.planned_units,
         occupied: r.occupied,
-        in_progress: r.in_progress,
         vacant: r.vacant,
       })),
     };

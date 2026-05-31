@@ -91,16 +91,34 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Привязка к штатке: если задана — title/location берём из строки штатки
+    // (авторитетно, целостность привязки). NULL → свободный ввод («нет в штатке»).
+    let resolvedTitle = input.title;
+    let resolvedLocation = input.location ?? null;
+    if (input.staffing_plan_id) {
+      const { data: sp } = await supabase
+        .from('staffing_plan')
+        .select('position_name, city')
+        .eq('id', input.staffing_plan_id)
+        .maybeSingle();
+      if (!sp) {
+        return apiError('NOT_FOUND', 'Строка штатки не найдена', 404);
+      }
+      resolvedTitle = sp.position_name;
+      resolvedLocation = sp.city;
+    }
+
     const { data, error } = await supabase
       .from('vacancies')
       .insert({
-        title: input.title,
+        title: resolvedTitle,
         department: input.department ?? null,
         subdivision: input.subdivision ?? null,
-        location: input.location ?? null,
+        location: resolvedLocation,
         customer_name: input.customer_name ?? null,
         priority: input.priority ?? null,
         manager_id: input.manager_id ?? null,
+        staffing_plan_id: input.staffing_plan_id ?? null,
         opened_at: input.opened_at,
         status: 'draft',
         confidentiality: input.confidentiality,

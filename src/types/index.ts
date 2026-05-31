@@ -126,7 +126,6 @@ export interface StaffingPlanRow {
   position_name: string;
   planned: number;
   occupied: number;
-  in_progress: number;
   vacant: number;
   comment: string | null;
   created_at: string;
@@ -136,7 +135,7 @@ export interface StaffingPlanRow {
 /** Ответ GET /api/staffing/availability?location=<city>. */
 export interface StaffingAvailabilityResponse {
   location: string;
-  rows: Array<Pick<StaffingPlanRow, 'position_name' | 'planned' | 'occupied' | 'in_progress' | 'vacant'>>;
+  rows: Array<Pick<StaffingPlanRow, 'position_name' | 'planned' | 'occupied' | 'vacant'>>;
 }
 
 export interface VacancySnapshot {

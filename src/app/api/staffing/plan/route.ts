@@ -42,7 +42,6 @@ export async function GET() {
       created_at: string;
       updated_at: string;
       occupied: number;
-      in_progress: number;
       vacant: number;
     };
 
@@ -53,7 +52,6 @@ export async function GET() {
       position_name: r.position_name,
       planned: r.planned_units,
       occupied: r.occupied,
-      in_progress: r.in_progress,
       vacant: r.vacant,
       comment: r.comment,
       created_at: r.created_at,
@@ -97,7 +95,6 @@ export async function POST(request: NextRequest) {
         city: input.city,
         position_name: input.position_name,
         planned_units: input.planned_units,
-        occupied_units: input.occupied_units,
         comment: input.comment ?? null,
         created_by: user.id,
       })
@@ -118,12 +115,12 @@ export async function POST(request: NextRequest) {
       throw new ApiError(500, 'DB_ERROR', insertError.message);
     }
 
-    // Уникальный конфликт: обновляем planned_units + occupied_units + comment, created_by не трогаем.
+    // Уникальный конфликт: обновляем planned_units + comment, created_by не трогаем.
+    // occupied_units НЕ пишем — заполненность вычисляется (FEATURE_SPEC_auto_staffing).
     const { data: updated, error: updateError } = await supabase
       .from('staffing_plan')
       .update({
         planned_units: input.planned_units,
-        occupied_units: input.occupied_units,
         comment: input.comment ?? null,
       })
       .eq('city', input.city)

@@ -50,6 +50,36 @@ function listResponse(data: object[]) {
   );
 }
 
+/**
+ * URL-маршрутизирующий мок fetch. Компонент на маунте делает ДВА запроса:
+ *   1) GET /api/vacancies/admin       — список вакансий;
+ *   2) GET /api/staffing/plan         — справочник штатки для привязки.
+ * Плюс PATCH /api/vacancies/[id] на inline-edit/смену статуса/привязку.
+ * Маршрутизируем по URL/методу, чтобы порядок и число mount-фетчей не ломали тесты.
+ */
+function mockFetch(opts?: { list?: object[]; patch?: Response }) {
+  const list = opts?.list ?? [vacancy];
+  return vi.spyOn(global, 'fetch').mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('/api/staffing/plan')) {
+      return Promise.resolve(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    }
+    if (init?.method === 'PATCH') {
+      return Promise.resolve(
+        opts?.patch ?? new Response(JSON.stringify({ data: {} }), { status: 200 }),
+      );
+    }
+    return Promise.resolve(listResponse(list));
+  });
+}
+
+/** Число PATCH-вызовов среди всех fetch (mount-фетчи списка/штатки не считаются). */
+function patchCount(spy: ReturnType<typeof vi.spyOn>): number {
+  return (spy.mock.calls as unknown as [RequestInfo, RequestInit?][]).filter(
+    ([, init]) => init?.method === 'PATCH',
+  ).length;
+}
+
 /** Находит первую строку данных таблицы (не header). */
 async function getDataRow() {
   const rows = await screen.findAllByRole('row');
@@ -148,11 +178,9 @@ describe('VacancyEditableCell — inline edit', () => {
   });
 
   it('успешный Enter → PATCH вызван, input закрыт', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce(listResponse([vacancy]))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: { ...vacancy, title: 'Ведущий продавец' } }), { status: 200 }),
-      );
+    const fetchSpy = mockFetch({
+      patch: new Response(JSON.stringify({ data: { ...vacancy, title: 'Ведущий продавец' } }), { status: 200 }),
+    });
 
     render(<AdminVacanciesClient role="admin" managers={managers} />);
 
@@ -164,17 +192,15 @@ describe('VacancyEditableCell — inline edit', () => {
     await userEvent.type(input, 'Ведущий продавец');
     await userEvent.keyboard('{Enter}');
 
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(patchCount(fetchSpy)).toBe(1));
     const row = await getDataRow();
     expect(within(row).queryByRole('textbox')).not.toBeInTheDocument();
   });
 
   it('провальный PATCH: ячейка откатывается, toast.error показан', async () => {
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce(listResponse([vacancy]))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { code: 'DB_ERROR', message: 'Ошибка' } }), { status: 500 }),
-      );
+    mockFetch({
+      patch: new Response(JSON.stringify({ error: { code: 'DB_ERROR', message: 'Ошибка' } }), { status: 500 }),
+    });
 
     render(<AdminVacanciesClient role="admin" managers={managers} />);
 
@@ -194,7 +220,7 @@ describe('VacancyEditableCell — inline edit', () => {
   });
 
   it('одинаковое значение: PATCH не вызывается', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(listResponse([vacancy]));
+    const fetchSpy = mockFetch();
     render(<AdminVacanciesClient role="admin" managers={managers} />);
 
     const cell = await getTitleCell();
@@ -206,8 +232,8 @@ describe('VacancyEditableCell — inline edit', () => {
       const row = await getDataRow();
       expect(within(row).queryByRole('textbox')).not.toBeInTheDocument();
     });
-    // Только 1 fetch-вызов (начальная загрузка)
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // PATCH не вызывался (mount-фетчи списка/штатки не в счёт)
+    expect(patchCount(fetchSpy)).toBe(0);
   });
 });
 
@@ -270,11 +296,9 @@ describe('CSV export', () => {
 // ── VacancyEditableCell: blur ─────────────────────────────────────────────────
 describe('VacancyEditableCell — blur', () => {
   it('blur вызывает save (fetch PATCH)', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce(listResponse([vacancy]))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: { ...vacancy, title: 'Блюр тест' } }), { status: 200 }),
-      );
+    const fetchSpy = mockFetch({
+      patch: new Response(JSON.stringify({ data: { ...vacancy, title: 'Блюр тест' } }), { status: 200 }),
+    });
 
     render(<AdminVacanciesClient role="admin" managers={managers} />);
 
@@ -289,12 +313,12 @@ describe('VacancyEditableCell — blur', () => {
     await userEvent.type(input, 'Блюр тест');
     await userEvent.tab(); // tab уходит с поля → вызывает blur
 
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(patchCount(fetchSpy)).toBe(1));
     expect(screen.queryByDisplayValue('Блюр тест')).not.toBeInTheDocument(); // input закрыт
   });
 
   it('blur без изменений: PATCH не вызывается', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(listResponse([vacancy]));
+    const fetchSpy = mockFetch();
 
     render(<AdminVacanciesClient role="admin" managers={managers} />);
     const cell = await getTitleCell();
@@ -307,15 +331,15 @@ describe('VacancyEditableCell — blur', () => {
       const row = screen.getAllByRole('row')[1];
       expect(within(row).queryByRole('textbox')).not.toBeInTheDocument();
     });
-    // fetch должен вызваться только 1 раз (загрузка)
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // PATCH не вызывался (mount-фетчи списка/штатки не в счёт)
+    expect(patchCount(fetchSpy)).toBe(0);
   });
 });
 
 // ── VacancyStatusCell: closed требует Calendar ────────────────────────────────
 describe('VacancyStatusCell — статус closed', () => {
   it('клик «Закрыта» показывает Calendar, не вызывает PATCH сразу', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(listResponse([vacancy]));
+    const fetchSpy = mockFetch();
 
     render(<AdminVacanciesClient role="admin" managers={managers} />);
     await getDataRow();
@@ -330,12 +354,12 @@ describe('VacancyStatusCell — статус closed', () => {
 
     // Calendar должен появиться (pendingStatus='closed')
     expect(screen.getByText('Дата закрытия')).toBeInTheDocument();
-    // PATCH ещё НЕ вызывался (только 1 вызов — начальная загрузка)
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // PATCH ещё НЕ вызывался
+    expect(patchCount(fetchSpy)).toBe(0);
   });
 
   it('кнопка «Отмена» в Calendar: статус не меняется, PATCH не вызывается', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(listResponse([vacancy]));
+    const fetchSpy = mockFetch();
 
     render(<AdminVacanciesClient role="admin" managers={managers} />);
     await getDataRow();
@@ -355,15 +379,13 @@ describe('VacancyStatusCell — статус closed', () => {
     expect(screen.queryByText('Дата закрытия')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /активна/i })).toBeInTheDocument();
     // PATCH не был вызван
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(patchCount(fetchSpy)).toBe(0);
   });
 
   it('кнопка «Закрыть» в Calendar: PATCH вызывается с closed_at', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce(listResponse([vacancy]))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: { ...vacancy, status: 'closed', closed_at: '2026-05-30' } }), { status: 200 }),
-      );
+    const fetchSpy = mockFetch({
+      patch: new Response(JSON.stringify({ data: { ...vacancy, status: 'closed', closed_at: '2026-05-30' } }), { status: 200 }),
+    });
 
     render(<AdminVacanciesClient role="admin" managers={managers} />);
     await getDataRow();
@@ -378,7 +400,7 @@ describe('VacancyStatusCell — статус closed', () => {
     const closeBtn = screen.getByRole('button', { name: /^закрыть$/i });
     await userEvent.click(closeBtn);
 
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(patchCount(fetchSpy)).toBe(1));
 
     // Проверяем что PATCH был с правильными полями
     const patchCall = fetchSpy.mock.calls.find(
@@ -391,11 +413,9 @@ describe('VacancyStatusCell — статус closed', () => {
   });
 
   it('non-closed статус применяется без Calendar', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce(listResponse([vacancy]))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: { ...vacancy, status: 'paused' } }), { status: 200 }),
-      );
+    const fetchSpy = mockFetch({
+      patch: new Response(JSON.stringify({ data: { ...vacancy, status: 'paused' } }), { status: 200 }),
+    });
 
     render(<AdminVacanciesClient role="admin" managers={managers} />);
     await getDataRow();
@@ -407,7 +427,7 @@ describe('VacancyStatusCell — статус closed', () => {
     await userEvent.click(pausedOption);
 
     // PATCH вызван сразу без Calendar
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(patchCount(fetchSpy)).toBe(1));
     expect(screen.queryByText('Дата закрытия')).not.toBeInTheDocument();
   });
 });

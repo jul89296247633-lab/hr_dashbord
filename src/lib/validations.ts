@@ -89,6 +89,8 @@ export const vacancyUpdateSchema = z
     location: z.string().max(100).nullable().optional(),
     manager_id: z.string().uuid().optional(),
     hh_vacancy_id: hhVacancyIdSchema.nullable().optional(),
+    // Ручная привязка/отвязка к штатке (FEATURE_SPEC_auto_staffing).
+    staffing_plan_id: z.string().uuid().nullable().optional(),
     customer_name: z.string().max(200).nullable().optional(),
     positions_count: z.number().int().min(1).max(100).optional(),
     priority: vacancyPrioritySchema,
@@ -177,13 +179,8 @@ export const staffingPlanUpsertSchema = z.object({
     .int('Ожидается целое число')
     .min(0, 'Не может быть отрицательным')
     .max(999, 'Максимум 999'),
-  occupied_units: z
-    .number({ invalid_type_error: 'Ожидается целое число от 0 до 999' })
-    .int('Ожидается целое число')
-    .min(0, 'Не может быть отрицательным')
-    .max(999, 'Максимум 999')
-    .optional()
-    .default(0),
+  // occupied_units НЕ принимаем: заполненность вычисляется из привязанных вакансий
+  // (FEATURE_SPEC_auto_staffing). Колонка в БД — legacy.
   comment: z.string().max(500, 'Комментарий не длиннее 500 символов').nullable().optional(),
 });
 export type StaffingPlanUpsertInput = z.infer<typeof staffingPlanUpsertSchema>;
@@ -356,6 +353,9 @@ export const vacancyRequestCreateSchema = z.object({
   location: z.string().max(100).nullable().optional(),
   // manager_id: кто будет работать вакансию. Nullable — можно назначить позже.
   manager_id: z.string().uuid('Некорректный UUID менеджера').nullable().optional(),
+  // Привязка к строке штатки (FEATURE_SPEC_auto_staffing). Задан → сервер берёт
+  // title/location из штатки; NULL → свободный ввод («нет в штатке»).
+  staffing_plan_id: z.string().uuid('Некорректный UUID строки штатки').nullable().optional(),
   customer_name: z.string().max(200, 'ФИО заказчика — максимум 200 символов').nullable().optional(),
   priority: vacancyPrioritySchema,
   opened_at: dateStringSchema,

@@ -32,7 +32,6 @@ export interface StaffingPlanFormInitial {
   city?: string;
   position_name?: string;
   planned_units?: number;
-  occupied_units?: number;
   comment?: string | null;
 }
 
@@ -56,7 +55,6 @@ export function StaffingPlanRowForm({
   const [city, setCity] = useState('');
   const [positionName, setPositionName] = useState('');
   const [plannedUnits, setPlannedUnits] = useState<number>(0);
-  const [occupiedUnits, setOccupiedUnits] = useState<number>(0);
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -66,7 +64,6 @@ export function StaffingPlanRowForm({
     setCity(initial?.city ?? '');
     setPositionName(initial?.position_name ?? '');
     setPlannedUnits(initial?.planned_units ?? 0);
-    setOccupiedUnits(initial?.occupied_units ?? 0);
     setComment(initial?.comment ?? '');
   }, [open, initial]);
 
@@ -85,10 +82,6 @@ export function StaffingPlanRowForm({
       toast.error('План — целое число от 0 до 999');
       return;
     }
-    if (!Number.isInteger(occupiedUnits) || occupiedUnits < 0 || occupiedUnits > 999) {
-      toast.error('Занято — целое число от 0 до 999');
-      return;
-    }
     setSubmitting(true);
     try {
       const res = await fetch('/api/staffing/plan', {
@@ -98,7 +91,6 @@ export function StaffingPlanRowForm({
           city: trimmedCity,
           position_name: trimmedPosition,
           planned_units: plannedUnits,
-          occupied_units: occupiedUnits,
           comment: comment.trim() || null,
         }),
       });
@@ -161,29 +153,20 @@ export function StaffingPlanRowForm({
               ))}
             </datalist>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="planned-units">Кол-во единиц (план)</Label>
-              <Input
-                id="planned-units"
-                type="number"
-                min={0}
-                max={999}
-                value={plannedUnits}
-                onChange={(e) => setPlannedUnits(Number(e.target.value))}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="occupied-units">Занято (факт)</Label>
-              <Input
-                id="occupied-units"
-                type="number"
-                min={0}
-                max={999}
-                value={occupiedUnits}
-                onChange={(e) => setOccupiedUnits(Number(e.target.value))}
-              />
-            </div>
+          <div className="grid gap-2">
+            <Label htmlFor="planned-units">Кол-во единиц (план)</Label>
+            <Input
+              id="planned-units"
+              type="number"
+              min={0}
+              max={999}
+              value={plannedUnits}
+              onChange={(e) => setPlannedUnits(Number(e.target.value))}
+            />
+            <p className="text-muted-foreground text-xs">
+              «Занято» больше не вводится вручную — считается автоматически из
+              привязанных вакансий.
+            </p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="comment">Комментарий</Label>

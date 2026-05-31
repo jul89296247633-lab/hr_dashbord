@@ -105,6 +105,7 @@ export type Database = {
           rejection_reason: string | null;
           position_group_id: string | null;
           queue_index: number | null;
+          staffing_plan_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -133,6 +134,7 @@ export type Database = {
           rejection_reason?: string | null;
           position_group_id?: string | null;
           queue_index?: number | null;
+          staffing_plan_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -161,6 +163,7 @@ export type Database = {
           rejection_reason?: string | null;
           position_group_id?: string | null;
           queue_index?: number | null;
+          staffing_plan_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1076,7 +1079,6 @@ export type Database = {
           created_at: string;
           updated_at: string;
           occupied: number;
-          in_progress: number;
           vacant: number;
         }[];
       };

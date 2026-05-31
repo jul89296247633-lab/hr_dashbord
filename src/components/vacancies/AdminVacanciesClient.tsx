@@ -65,7 +65,14 @@ interface AdminVacancy {
   closed_at: string | null;
   days_to_close: number | null;
   priority: string | null;
+  staffing_plan_id: string | null;
   manager: { id: string; full_name: string } | null;
+}
+
+interface StaffingOption {
+  id: string;
+  city: string;
+  position_name: string;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -249,6 +256,111 @@ function VacancyEditableCell({
   );
 }
 
+// ── VacancyStaffingCell — ручная привязка вакансии к строке штатки ───────────
+function VacancyStaffingCell({
+  vacancy,
+  options,
+  canEdit,
+  onUpdated,
+}: {
+  vacancy: AdminVacancy;
+  options: StaffingOption[];
+  canEdit: boolean;
+  onUpdated: (staffingPlanId: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const current = options.find((o) => o.id === vacancy.staffing_plan_id) ?? null;
+  const label = current ? `${current.city} — ${current.position_name}` : null;
+
+  const filtered = filter.trim()
+    ? options.filter((o) =>
+        `${o.city} ${o.position_name}`.toLowerCase().includes(filter.trim().toLowerCase()),
+      )
+    : options;
+
+  async function bind(staffingPlanId: string | null) {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/vacancies/${vacancy.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffing_plan_id: staffingPlanId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(json?.error?.message ?? 'Ошибка привязки'); return; }
+      toast.success(staffingPlanId ? 'Привязано к штатке' : 'Отвязано от штатки');
+      onUpdated(staffingPlanId);
+      setOpen(false);
+    } catch { toast.error('Ошибка привязки'); }
+    finally { setSaving(false); }
+  }
+
+  if (!canEdit) {
+    return label
+      ? <span className="text-xs">{label}</span>
+      : <span className="text-muted-foreground italic text-xs">—</span>;
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            'cursor-pointer rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-muted',
+            label ? 'font-medium' : 'text-muted-foreground italic',
+          )}
+          title="Привязать к штатному расписанию"
+        >
+          {label ?? 'Не привязана'}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-2" align="start">
+        <div className="grid gap-2">
+          <Input
+            placeholder="Поиск: город / должность"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="h-8 text-sm"
+          />
+          {vacancy.staffing_plan_id && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="justify-start"
+              onClick={() => void bind(null)}
+              disabled={saving}
+            >
+              Отвязать
+            </Button>
+          )}
+          <div className="max-h-60 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="text-muted-foreground px-1 py-2 text-xs">Ничего не найдено</p>
+            ) : (
+              filtered.slice(0, 100).map((o) => (
+                <button
+                  key={o.id}
+                  className={cn(
+                    'block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted',
+                    o.id === vacancy.staffing_plan_id && 'bg-muted font-medium',
+                  )}
+                  onClick={() => void bind(o.id)}
+                  disabled={saving}
+                >
+                  {o.city} — {o.position_name}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 export function AdminVacanciesClient({
   role,
@@ -264,6 +376,7 @@ export function AdminVacanciesClient({
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [staffingOptions, setStaffingOptions] = useState<StaffingOption[]>([]);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('all');
@@ -308,6 +421,19 @@ export function AdminVacanciesClient({
   }, [statusFilter, typeFilter, cityFilter, managerFilter, search, page]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Справочник строк штатки для ручной привязки (грузим один раз).
+  useEffect(() => {
+    fetch('/api/staffing/plan')
+      .then((r) => r.json())
+      .then((j) => {
+        const list = (j.data ?? []) as { id: string; city: string; position_name: string }[];
+        setStaffingOptions(
+          list.map((s) => ({ id: s.id, city: s.city, position_name: s.position_name })),
+        );
+      })
+      .catch(() => { /* привязка необязательна; список останется пустым */ });
+  }, []);
 
   function updateRow(id: string, patch: Partial<AdminVacancy>) {
     setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...patch } : r));
@@ -464,6 +590,7 @@ export function AdminVacanciesClient({
                 <TableHead className="min-w-48">Название</TableHead>
                 <TableHead>Подразделение</TableHead>
                 <TableHead>Город</TableHead>
+                <TableHead>Штатка</TableHead>
                 {!isExecutive
                   ? <TableHead>Менеджер</TableHead>
                   : (
@@ -503,6 +630,14 @@ export function AdminVacanciesClient({
                     {canEdit
                       ? <VacancyEditableCell value={v.location} vacancyId={v.id} field="location" onUpdated={(val) => updateRow(v.id, { location: val })} />
                       : (v.location ?? '—')}
+                  </TableCell>
+                  <TableCell>
+                    <VacancyStaffingCell
+                      vacancy={v}
+                      options={staffingOptions}
+                      canEdit={canEdit}
+                      onUpdated={(spid) => updateRow(v.id, { staffing_plan_id: spid })}
+                    />
                   </TableCell>
                   <TableCell>
                     {isExecutive

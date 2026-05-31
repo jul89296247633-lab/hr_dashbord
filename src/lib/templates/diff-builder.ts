@@ -440,7 +440,9 @@ export async function buildStaffingPlanDiff(
         city,
         position_name: positionName,
         planned_units: plannedUnits,
-        occupied_units: occupiedUnits,
+        // occupied_units НЕ кладём: заполненность вычисляется из привязанных
+        // вакансий (FEATURE_SPEC_auto_staffing). «Занято» валидируется выше, но
+        // в БД не пишется.
         comment: v['Комментарий'].trim() || null,
       },
     });

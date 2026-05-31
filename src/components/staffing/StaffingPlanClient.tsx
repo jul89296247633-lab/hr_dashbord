@@ -72,7 +72,6 @@ export function StaffingPlanClient({ role }: { role: Role }) {
       city: r.city,
       position_name: r.position_name,
       planned_units: r.planned,
-      occupied_units: r.occupied,
       comment: r.comment,
     });
     setFormOpen(true);

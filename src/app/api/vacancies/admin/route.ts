@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       .select(
         `id, hh_vacancy_id, internal_ref, title, subdivision, location,
          manager_id, status, confidentiality, request_status,
-         opened_at, closed_at, days_to_close,
+         opened_at, closed_at, days_to_close, staffing_plan_id,
          google_sheet_row, priority, created_at, updated_at,
          manager:user_profiles!vacancies_manager_id_fkey(id, full_name, is_active)`,
         { count: 'exact' },
@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
       opened_at: string;
       closed_at: string | null;
       days_to_close: number | null;
+      staffing_plan_id: string | null;
       google_sheet_row: number | null;
       priority: string | null;
       created_at: string;
