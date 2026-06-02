@@ -97,6 +97,11 @@ export type Database = {
           days_to_close: number | null;
           google_sheet_row: number | null;
           priority: string | null;
+          // FEATURE_SPEC #3 — поля сводной таблицы Data
+          appearance_reason: 'dismissal' | 'replacement' | 'expansion' | 'internal_transfer' | 'other' | null;
+          explanation: string | null;
+          candidate_name: string | null;
+          comment: string | null;
           request_status: string | null;
           request_reason: string | null;
           requested_by: string | null;
@@ -126,6 +131,10 @@ export type Database = {
           closed_at?: string | null;
           google_sheet_row?: number | null;
           priority?: string | null;
+          appearance_reason?: 'dismissal' | 'replacement' | 'expansion' | 'internal_transfer' | 'other' | null;
+          explanation?: string | null;
+          candidate_name?: string | null;
+          comment?: string | null;
           request_status?: string | null;
           request_reason?: string | null;
           requested_by?: string | null;
@@ -155,6 +164,10 @@ export type Database = {
           closed_at?: string | null;
           google_sheet_row?: number | null;
           priority?: string | null;
+          appearance_reason?: 'dismissal' | 'replacement' | 'expansion' | 'internal_transfer' | 'other' | null;
+          explanation?: string | null;
+          candidate_name?: string | null;
+          comment?: string | null;
           request_status?: string | null;
           request_reason?: string | null;
           requested_by?: string | null;

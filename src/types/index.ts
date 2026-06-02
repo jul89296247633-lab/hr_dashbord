@@ -77,11 +77,20 @@ export interface DailyActivityWithTotal extends DailyActivity {
 export type VacancyStatus = 'active' | 'probation' | 'paused' | 'closed' | 'cancelled' | 'draft';
 export type VacancyRequestStatus = 'pending' | 'approved' | 'rejected';
 
+/** Причина появления вакансии (FEATURE_SPEC #3). */
+export type AppearanceReason =
+  | 'dismissal'
+  | 'replacement'
+  | 'expansion'
+  | 'internal_transfer'
+  | 'other';
+
 export interface Vacancy {
   id: string;
   hh_vacancy_id: string | null;
   internal_ref: string | null;
   title: string;
+  /** @deprecated FEATURE_SPEC #3 — каноническое поле подразделения = subdivision. Не писать. */
   department: string | null;
   subdivision: string | null;
   location: string | null;
@@ -93,6 +102,11 @@ export interface Vacancy {
   days_to_close: number | null;
   google_sheet_row: number | null;
   priority: VacancyPriority | null;
+  // FEATURE_SPEC #3 — поля сводной таблицы Data
+  appearance_reason: AppearanceReason | null;
+  explanation: string | null;
+  candidate_name: string | null;
+  comment: string | null;
   // Поля заявки (NULL у вакансий из Sheets/CSV)
   request_status: VacancyRequestStatus | null;
   request_reason: string | null;

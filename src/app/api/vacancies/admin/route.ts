@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
       status: sp.get('status') ?? undefined,
       type: sp.get('type') ?? undefined,
       city: sp.get('city') ?? undefined,
+      subdivision: sp.get('subdivision') ?? undefined,
       manager_id: sp.get('manager_id') ?? undefined,
       search: sp.get('search') ?? undefined,
       page: sp.get('page') ?? undefined,
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
     if (!parsed.success) {
       return apiError('VALIDATION_ERROR', parsed.error.issues[0].message, 422);
     }
-    const { status, type, city, manager_id, search, page, per_page } = parsed.data;
+    const { status, type, city, subdivision, manager_id, search, page, per_page } = parsed.data;
 
     const db = createAdminClient();
 
@@ -45,7 +46,9 @@ export async function GET(request: NextRequest) {
         `id, hh_vacancy_id, internal_ref, title, subdivision, location,
          manager_id, status, confidentiality, request_status,
          opened_at, closed_at, days_to_close, staffing_plan_id,
-         google_sheet_row, priority, created_at, updated_at,
+         google_sheet_row, priority, customer_name, positions_count,
+         appearance_reason, explanation, candidate_name, comment,
+         created_at, updated_at,
          manager:user_profiles!vacancies_manager_id_fkey(id, full_name, is_active)`,
         { count: 'exact' },
       )
@@ -54,6 +57,7 @@ export async function GET(request: NextRequest) {
     if (status !== 'all') query = query.eq('status', status);
     if (type !== 'all') query = query.eq('confidentiality', type);
     if (city) query = query.ilike('location', `%${city}%`);
+    if (subdivision) query = query.eq('subdivision', subdivision);
     if (manager_id) query = query.eq('manager_id', manager_id);
     if (search) query = query.ilike('title', `%${search}%`);
 
@@ -80,6 +84,12 @@ export async function GET(request: NextRequest) {
       staffing_plan_id: string | null;
       google_sheet_row: number | null;
       priority: string | null;
+      customer_name: string | null;
+      positions_count: number | null;
+      appearance_reason: string | null;
+      explanation: string | null;
+      candidate_name: string | null;
+      comment: string | null;
       created_at: string;
       updated_at: string;
       manager: { id: string; full_name: string; is_active: boolean } | null;

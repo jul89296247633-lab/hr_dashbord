@@ -38,7 +38,7 @@ const STATUSES = [
 
 const formSchema = z.object({
   title: z.string().min(2, 'Минимум 2 символа').max(200, 'Максимум 200 символов'),
-  department: z.string().max(100).optional(),
+  // department депрецирован (FEATURE_SPEC #3) — поле убрано; канон = subdivision.
   subdivision: z.string().max(100).optional(),
   manager_id: z.string().uuid('Выберите ответственного менеджера'),
   hh_vacancy_id: z
@@ -66,7 +66,6 @@ export function VacancyForm({ mode, managers, vacancyId, initial }: VacancyFormP
     resolver: zodResolver(formSchema),
     defaultValues: {
       title: initial?.title ?? '',
-      department: initial?.department ?? '',
       subdivision: initial?.subdivision ?? '',
       manager_id: initial?.manager_id ?? '',
       hh_vacancy_id: initial?.hh_vacancy_id ?? '',
@@ -80,7 +79,6 @@ export function VacancyForm({ mode, managers, vacancyId, initial }: VacancyFormP
     try {
       const body = {
         title: values.title,
-        department: values.department?.trim() || null,
         subdivision: values.subdivision?.trim() || null,
         manager_id: values.manager_id,
         hh_vacancy_id: values.hh_vacancy_id?.trim() || null,
@@ -127,19 +125,6 @@ export function VacancyForm({ mode, managers, vacancyId, initial }: VacancyFormP
                     <FormLabel>Название вакансии</FormLabel>
                     <FormControl>
                       <Input placeholder="Менеджер по продажам (Москва)" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="department"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Отдел</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Отдел продаж" {...field} value={field.value ?? ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

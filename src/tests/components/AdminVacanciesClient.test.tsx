@@ -38,6 +38,14 @@ const vacancy = {
   closed_at: null,
   days_to_close: null,
   priority: null,
+  // FEATURE_SPEC #3 — поля сводной таблицы Data
+  customer_name: 'Иванов И.И.',
+  positions_count: 1,
+  appearance_reason: null,
+  explanation: null,
+  candidate_name: null,
+  comment: null,
+  staffing_plan_id: null,
   manager: { id: 'm1', full_name: 'Иванов Иван' },
 };
 
@@ -51,9 +59,10 @@ function listResponse(data: object[]) {
 }
 
 /**
- * URL-маршрутизирующий мок fetch. Компонент на маунте делает ДВА запроса:
- *   1) GET /api/vacancies/admin       — список вакансий;
- *   2) GET /api/staffing/plan         — справочник штатки для привязки.
+ * URL-маршрутизирующий мок fetch. Компонент на маунте делает ТРИ запроса:
+ *   1) GET /api/vacancies/admin            — список вакансий;
+ *   2) GET /api/staffing/plan              — справочник штатки для привязки (#2);
+ *   3) GET /api/vacancies/requests/options — справочник подразделений (#3).
  * Плюс PATCH /api/vacancies/[id] на inline-edit/смену статуса/привязку.
  * Маршрутизируем по URL/методу, чтобы порядок и число mount-фетчей не ломали тесты.
  */
@@ -63,6 +72,9 @@ function mockFetch(opts?: { list?: object[]; patch?: Response }) {
     const url = String(input);
     if (url.includes('/api/staffing/plan')) {
       return Promise.resolve(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    }
+    if (url.includes('/api/vacancies/requests/options')) {
+      return Promise.resolve(new Response(JSON.stringify({ data: { subdivisions: ['Розница', 'Бэк офис'] } }), { status: 200 }));
     }
     if (init?.method === 'PATCH') {
       return Promise.resolve(
@@ -245,15 +257,11 @@ describe('CSV export', () => {
     global.URL.createObjectURL = createObjectURL;
     global.URL.revokeObjectURL = vi.fn();
 
-    // Перехватываем click на anchor
+    // Перехватываем appendChild для anchor (иначе jsdom ругается на navigation)
     const origAppendChild = document.body.appendChild.bind(document.body);
-    let anchorClicked = false;
     vi.spyOn(document.body, 'appendChild').mockImplementation((node) => {
       const el = node as HTMLAnchorElement;
-      if (el.tagName === 'A') {
-        anchorClicked = true;
-        return node;
-      }
+      if (el.tagName === 'A') return node;
       return origAppendChild(node);
     });
 
@@ -353,7 +361,7 @@ describe('VacancyStatusCell — статус closed', () => {
     await userEvent.click(closedOption);
 
     // Calendar должен появиться (pendingStatus='closed')
-    expect(screen.getByText('Дата закрытия')).toBeInTheDocument();
+    expect(screen.getByText('Выберите дату закрытия')).toBeInTheDocument();
     // PATCH ещё НЕ вызывался
     expect(patchCount(fetchSpy)).toBe(0);
   });
@@ -371,12 +379,12 @@ describe('VacancyStatusCell — статус closed', () => {
     await userEvent.click(closedOption);
 
     // Calendar открылся — нажимаем «Отмена»
-    await screen.findByText('Дата закрытия');
+    await screen.findByText('Выберите дату закрытия');
     const cancelBtn = screen.getByRole('button', { name: /отмена/i });
     await userEvent.click(cancelBtn);
 
     // Calendar исчез, статус-кнопка показывает исходный статус
-    expect(screen.queryByText('Дата закрытия')).not.toBeInTheDocument();
+    expect(screen.queryByText('Выберите дату закрытия')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /активна/i })).toBeInTheDocument();
     // PATCH не был вызван
     expect(patchCount(fetchSpy)).toBe(0);
@@ -396,7 +404,7 @@ describe('VacancyStatusCell — статус closed', () => {
     const closedOption = await screen.findByRole('button', { name: /закрыта/i });
     await userEvent.click(closedOption);
 
-    await screen.findByText('Дата закрытия');
+    await screen.findByText('Выберите дату закрытия');
     const closeBtn = screen.getByRole('button', { name: /^закрыть$/i });
     await userEvent.click(closeBtn);
 
@@ -428,7 +436,7 @@ describe('VacancyStatusCell — статус closed', () => {
 
     // PATCH вызван сразу без Calendar
     await waitFor(() => expect(patchCount(fetchSpy)).toBe(1));
-    expect(screen.queryByText('Дата закрытия')).not.toBeInTheDocument();
+    expect(screen.queryByText('Выберите дату закрытия')).not.toBeInTheDocument();
   });
 });
 

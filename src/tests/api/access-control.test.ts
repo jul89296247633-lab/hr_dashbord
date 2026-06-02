@@ -30,7 +30,7 @@ vi.mock('@/lib/logger', () => ({
 import * as apiHelpers from '@/lib/api-helpers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
-import { makeSupabaseClient, makeSupabaseMulti } from '@/tests/helpers/mock-supabase';
+import { makeSupabaseClient } from '@/tests/helpers/mock-supabase';
 
 const mockGetAuthUser = apiHelpers.getAuthUser as ReturnType<typeof vi.fn>;
 const mockCreateAdmin = createAdminClient as ReturnType<typeof vi.fn>;

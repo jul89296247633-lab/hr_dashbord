@@ -164,7 +164,7 @@ export async function PATCH(
       }
       siblings.push({
         title: vacancy.title,
-        department: vacancy.department ?? null,
+        // department депрецирован (FEATURE_SPEC #3) — не наследуем; канон = subdivision.
         subdivision: vacancy.subdivision ?? null,
         location: vacancy.location ?? null,
         customer_name: vacancy.customer_name ?? null,

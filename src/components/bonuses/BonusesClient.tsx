@@ -66,6 +66,13 @@ function formatKopecks(k: number) {
   return `${(k / 100).toLocaleString('ru-RU')} ₽`;
 }
 
+// Map tab → API status param (модульная константа — стабильна между рендерами).
+const tabToStatus: Record<string, string> = {
+  pending: 'pending',
+  unmatched: 'unmatched',
+  paid: 'paid',
+};
+
 export function BonusesClient({ role }: { role: Role }) {
   const canManage = role === 'head' || role === 'admin';
   const isAdmin = role === 'admin';
@@ -102,13 +109,6 @@ export function BonusesClient({ role }: { role: Role }) {
       })
       .catch(() => setManagers([]));
   }, [canManage]);
-
-  // Map tab → API status param
-  const tabToStatus: Record<string, string> = {
-    pending: 'pending',
-    unmatched: 'unmatched',
-    paid: 'paid',
-  };
 
   const load = useCallback(async () => {
     setLoading(true);

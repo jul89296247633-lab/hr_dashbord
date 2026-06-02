@@ -132,11 +132,18 @@ export async function POST(request: NextRequest) {
       .from('vacancies')
       .insert({
         title: input.title,
-        department: input.department ?? null,
+        // department депрецирован (FEATURE_SPEC #3) — не пишем; канон = subdivision.
         subdivision: input.subdivision ?? null,
         location: input.location ?? null,
         manager_id: input.manager_id,
         hh_vacancy_id: input.hh_vacancy_id ?? null,
+        customer_name: input.customer_name ?? null,
+        positions_count: input.positions_count ?? 1,
+        priority: input.priority ?? null,
+        appearance_reason: input.appearance_reason ?? null,
+        explanation: input.explanation ?? null,
+        candidate_name: input.candidate_name ?? null,
+        comment: input.comment ?? null,
         opened_at: input.opened_at ?? new Date().toISOString().slice(0, 10),
         closed_at: input.closed_at ?? null,
         status: input.status,

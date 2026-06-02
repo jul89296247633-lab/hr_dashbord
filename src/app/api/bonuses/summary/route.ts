@@ -65,8 +65,9 @@ export async function GET(request: NextRequest) {
     }
 
     const summary = Array.from(byManager.entries()).map(([managerId, e]) => ({
-      manager_id: managerId,
-      full_name: e.full_name,
+      // EC-09: executive не видит имён/идентификаторов менеджеров.
+      manager_id: user.role === 'executive' ? null : managerId,
+      full_name: user.role === 'executive' ? '—' : e.full_name,
       bonuses_count: e.count,
       total_kopecks: e.total,
       total_display: formatKopecks(e.total),

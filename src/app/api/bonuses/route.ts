@@ -86,9 +86,20 @@ export async function GET(request: NextRequest) {
       manager: user.role === 'executive' ? null : r.manager,
     }));
 
-    const totalKopecks = rows
-      .filter((r) => r.status !== 'cancelled')
-      .reduce((s, r) => s + (r.bonus_amount_kopecks ?? 0), 0);
+    // Сумма «Начислено» — по ВСЕЙ выборке фильтра (не по странице): иначе при
+    // >per_page занижение. Тянем только сумму-колонку, без пагинации.
+    let sumQuery = supabase
+      .from('hr_bonuses')
+      .select('bonus_amount_kopecks')
+      .neq('status', 'cancelled');
+    if (status !== 'all') sumQuery = sumQuery.eq('status', status);
+    if (effectiveManagerId) sumQuery = sumQuery.eq('manager_id', effectiveManagerId);
+    const { data: sumRows, error: sumError } = await sumQuery;
+    if (sumError) throw new ApiError(500, 'DB_ERROR', sumError.message);
+    const totalKopecks = (sumRows ?? []).reduce(
+      (s, r) => s + ((r as { bonus_amount_kopecks: number | null }).bonus_amount_kopecks ?? 0),
+      0,
+    );
 
     return apiSuccess({
       data: list,

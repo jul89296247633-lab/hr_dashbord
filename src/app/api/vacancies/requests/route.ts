@@ -41,7 +41,12 @@ export async function GET(request: NextRequest) {
     const { data, count, error } = await query;
     if (error) throw new ApiError(500, 'DB_ERROR', error.message);
 
-    return apiSuccess({ data: data ?? [], total: count ?? 0 });
+    // EC-09: executive не видит имён/идентификаторов менеджеров (как в GET /api/vacancies).
+    const safeData = user.role === 'executive'
+      ? (data ?? []).map((v) => ({ ...v, manager: null, manager_id: null }))
+      : (data ?? []);
+
+    return apiSuccess({ data: safeData, total: count ?? 0 });
   } catch (err) {
     return handleApiError(err);
   }
@@ -112,11 +117,13 @@ export async function POST(request: NextRequest) {
       .from('vacancies')
       .insert({
         title: resolvedTitle,
-        department: input.department ?? null,
+        // department депрецирован (FEATURE_SPEC #3) — не пишем; канон = subdivision.
         subdivision: input.subdivision ?? null,
         location: resolvedLocation,
         customer_name: input.customer_name ?? null,
         priority: input.priority ?? null,
+        appearance_reason: input.appearance_reason ?? null,
+        explanation: input.explanation ?? null,
         manager_id: input.manager_id ?? null,
         staffing_plan_id: input.staffing_plan_id ?? null,
         opened_at: input.opened_at,

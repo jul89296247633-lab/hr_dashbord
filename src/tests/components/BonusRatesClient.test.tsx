@@ -3,7 +3,7 @@
  * history modal (пустое состояние), create modal, empty state.
  */
 import React from 'react';
-import { vi, describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { vi, describe, it, expect, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 

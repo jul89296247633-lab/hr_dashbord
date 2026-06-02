@@ -30,7 +30,7 @@ export default async function EditVacancyPage({ params }: { params: Promise<{ id
       .order('full_name', { ascending: true }),
     supabase
       .from('vacancies')
-      .select('id, title, department, subdivision, manager_id, hh_vacancy_id, opened_at, status')
+      .select('id, title, subdivision, manager_id, hh_vacancy_id, opened_at, status')
       .eq('id', id)
       .maybeSingle(),
   ]);
@@ -44,7 +44,6 @@ export default async function EditVacancyPage({ params }: { params: Promise<{ id
       managers={managers ?? []}
       initial={{
         title: vacancy.title,
-        department: vacancy.department ?? '',
         subdivision: vacancy.subdivision ?? '',
         manager_id: vacancy.manager_id ?? undefined,
         hh_vacancy_id: vacancy.hh_vacancy_id ?? '',

@@ -214,12 +214,6 @@ export async function POST(request: NextRequest) {
           source: 'hh_csv',
         };
 
-        console.log('SNAPSHOT INSERT:', {
-          vacancy_id: snapshotPayload.vacancy_id,
-          snapshot_at: snapshotPayload.snapshot_at,
-          responses_count: snapshotPayload.responses_count,
-        });
-
         const { error: insertSnapErr } = await db
           .from('vacancy_snapshots')
           .insert(snapshotPayload);
@@ -245,12 +239,6 @@ export async function POST(request: NextRequest) {
           closed += 1;
         }
       }
-
-      console.log(
-        'snapshots written:', snapshotsWritten,
-        'skipped no vacancy:', matchedNoVacancy,
-        'skipped locked:', skippedLocked,
-      );
 
       await logSync(db, user.id, rows.length, matched, 'ok');
       return apiSuccess({

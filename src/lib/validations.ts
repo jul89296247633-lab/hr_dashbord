@@ -63,8 +63,19 @@ const vacancyPrioritySchema = z.enum(['высокий', 'средний', 'ни�
 const hhVacancyIdSchema = z.string().regex(/^\d+$/, 'ID на HH.ru — только цифры');
 
 /** Тело POST /api/vacancies (создание; head/admin). */
+/** Причина появления вакансии (FEATURE_SPEC #3). */
+export const appearanceReasonSchema = z.enum([
+  'dismissal',
+  'replacement',
+  'expansion',
+  'internal_transfer',
+  'other',
+]);
+
 export const vacancyCreateSchema = z.object({
   title: z.string().min(2, 'Минимум 2 символа').max(200, 'Максимум 200 символов'),
+  // department депрецирован (FEATURE_SPEC #3): принимаем для обратной совместимости,
+  // но в БД больше не пишется. Каноническое поле — subdivision.
   department: z.string().max(100).nullable().optional(),
   subdivision: z.string().max(100).nullable().optional(),
   location: z.string().max(100).nullable().optional(),
@@ -73,6 +84,11 @@ export const vacancyCreateSchema = z.object({
   customer_name: z.string().max(200).nullable().optional(),
   positions_count: z.number().int().min(1).max(100).optional(),
   priority: vacancyPrioritySchema,
+  // FEATURE_SPEC #3 — поля сводной таблицы Data
+  appearance_reason: appearanceReasonSchema.nullable().optional(),
+  explanation: z.string().max(2000).nullable().optional(),
+  candidate_name: z.string().max(200).nullable().optional(),
+  comment: z.string().max(2000).nullable().optional(),
   opened_at: dateStringSchema.optional(),
   closed_at: dateStringSchema.nullable().optional(),
   status: vacancyStatusSchema.default('active'),
@@ -94,6 +110,11 @@ export const vacancyUpdateSchema = z
     customer_name: z.string().max(200).nullable().optional(),
     positions_count: z.number().int().min(1).max(100).optional(),
     priority: vacancyPrioritySchema,
+    // FEATURE_SPEC #3 — поля сводной таблицы Data (inline-edit)
+    appearance_reason: appearanceReasonSchema.nullable().optional(),
+    explanation: z.string().max(2000).nullable().optional(),
+    candidate_name: z.string().max(200).nullable().optional(),
+    comment: z.string().max(2000).nullable().optional(),
     opened_at: dateStringSchema.optional(),
     closed_at: dateStringSchema.nullable().optional(),
     status: vacancyStatusSchema.optional(),
@@ -266,6 +287,7 @@ export const vacancyAdminQuerySchema = z.object({
   status: z.enum(['active', 'probation', 'paused', 'closed', 'cancelled', 'draft', 'all']).default('all'),
   type: z.enum(['open', 'confidential', 'all']).default('all'),
   city: z.string().max(100).optional(),
+  subdivision: z.string().max(100).optional(),
   manager_id: z.string().uuid().optional(),
   search: z.string().max(200).optional(),
   page: z.coerce.number().int().min(1).default(1),
@@ -358,6 +380,10 @@ export const vacancyRequestCreateSchema = z.object({
   staffing_plan_id: z.string().uuid('Некорректный UUID строки штатки').nullable().optional(),
   customer_name: z.string().max(200, 'ФИО заказчика — максимум 200 символов').nullable().optional(),
   priority: vacancyPrioritySchema,
+  // FEATURE_SPEC #3 — причина появления (структура) + пояснение (свободный текст).
+  // Независимы от request_reason (обоснование заявки в workflow согласования).
+  appearance_reason: appearanceReasonSchema.nullable().optional(),
+  explanation: z.string().max(2000).nullable().optional(),
   opened_at: dateStringSchema,
   request_reason: z.string().max(1000, 'Причина — максимум 1000 символов').nullable().optional(),
   confidentiality: z.enum(['open', 'confidential']).default('open'),
