@@ -1,10 +1,34 @@
 # HANDOFF — HR Control Tower
 
-> Сводка состояния проекта. Обновлено: **2026-05-31 (Build спеки #2 — авто-укомплектованность)**.
+> Сводка состояния проекта. Обновлено: **2026-06-02 (FS-2 — бонусы + админ-таблица вакансий в стиле Data, в проде)**.
 > Источник истины — `SPEC.md`. Правила команды — `CLAUDE.md`.
 > Стек: Next.js 15 (App Router, `src/`), TypeScript, Tailwind v4, shadcn/ui, Supabase PG17, Zod.
 
 Проверка после изменений: `npx tsc --noEmit`, `npm run lint`, `next build` — все три зелёные.
+
+---
+
+## ✅ FS-2 «Бонусы + админ-таблица вакансий (стиль Data)» — РЕАЛИЗОВАНО и в проде (сессия 2026-06-02)
+
+Спека #3: [FEATURE_SPEC_3_vacancies_data_view.md](docs/FEATURE_SPEC_3_vacancies_data_view.md). Сводный коммит ветки `cd9b026` (включает реализацию #3 + фиксы cross-model review бонусов).
+
+**Новое в БД** (применено `supabase db push`):
+- `20260531130000_vacancies_data_fields` — enum `appearance_reason` (`dismissal/replacement/expansion/internal_transfer/other`) + поля `appearance_reason`, `explanation`, `candidate_name`, `comment` + CHECK-лимиты длины; `department` **депрецирован** (COMMENT, не дропнут — канон = `subdivision`, данные пусты на 100%);
+- `20260531140000_bonus_skip_draft_close` — `CREATE OR REPLACE auto_create_bonus_on_close` с guard `IF OLD.status='draft' THEN RETURN NEW` (не начислять бонус при закрытии черновика; ACL не сброшен — без DROP).
+
+**Extra-поля #3 (зафиксировано):** каноническое подразделение — **`subdivision`** (`department` мёртв, 0/200, не пишется нигде: убран из `POST /api/vacancies`, `requests`, наследования сиблингов в `activate`, и из `VacancyForm` — был баг записи в мёртвое поле); `days_to_close` — GENERATED (TTF); `priority` — text (`высокий/средний/низкий`); причина появления = enum, пояснение = свободный text (независимы от `request_reason`).
+
+**Код:** `/vacancies/admin` переверстан под вид Data — 16 колонок в порядке Sheets (Название/Город/Формат поиска/Причина/Пояснение/Подразделение/Заказчик/Приоритет/Кол-во/даты/Статус/Менеджер/TTF/Кандидат/Комментарий) + хвостовые операционные (Штатка #2 / HH ID / Ref); цвет строки по `status` (`STATUS_ROW_VARIANTS` на `TableRow`), цветной приоритет, RU-маппинг причины, TTF (закрытая=`days_to_close`, открытая=«N в работе»), пустой priority → «—» (EC-1); inline-edit статуса (`VacancyStatusCell`) и ячеек сохранён; фильтр + поле подразделения. **Фиксы cross-model review (P1):** executive не получает имён менеджеров в `GET /api/bonuses/summary` и `GET /api/vacancies/requests` (EC-09); `total_amount_kopecks` в `/api/bonuses` считается по всей выборке фильтра (не по странице).
+
+**Верификация на живых данных (прод):** advisor — без нового регресса (SEC-001 цел, `compute_staffing_plan` не anon; миграции аддитивные/`CREATE OR REPLACE` → ACL не сброшен); схема — все 4 поля + CHECK на месте; `department` default NULL; триггер: `active→closed` = бонус создаётся, **`draft→closed` = 0 бонусов**, NULL manager_id guard намеренный (0/200); snapshot тарифа фиксируется в `hr_bonuses` (изменение `bonus_rates` старые не пересчитывает); все тест-строки в транзакциях с ROLLBACK (0 остаточных). **tsc 0, lint 0 warning, тесты 117/117** (+ новый `executive-pii.test.ts` на EC-09).
+
+**Git:** ветка `feature/bonuses-admin-vacancies`, коммит `cd9b026` (21 файл), запушен в origin (local==origin). **В `main` НЕ влита** (PR — после prod-блокеров).
+
+### Открытые на следующие сессии
+- **Build не нужен** — FS-2 в проде.
+- **Backfill ~158 вакансий** к штатке (#2) — по необходимости, ручной привязкой.
+- **Prod-блокеры до merge в main** — см. ниже (SEC-012 `xlsx`, RLS-тесты под Docker, CSP enforced).
+- Возможные доработки из review (не блокеры): `bonus_date` не обновляется при повторном закрытии (P2); доступ `GET /api/admin/bonus-rates` для head (зафиксировать).
 
 ---
 
