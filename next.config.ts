@@ -1,15 +1,17 @@
 import type { NextConfig } from 'next';
 
-// Security headers (SEC-006). CSP — Report-Only на старте: браузер логирует
-// нарушения, но НЕ блокирует. Снимем отчёты на проде, убедимся что ничего
-// не ломается, затем переведём в enforced (по возможности — на nonce).
+// Security headers (SEC-006). CSP — ENFORCED (после периода Report-Only на проде
+// без нарушений). Браузер блокирует ресурсы вне политики. Политика разрешает то,
+// что реально нужно фронту (Next inline-bootstrap/hydration, Tailwind v4 + Radix
+// inline-стили, Supabase REST+WS). Дальнейшее ужесточение (nonce вместо
+// 'unsafe-inline'/'unsafe-eval' для script-src) — отдельной задачей.
 const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
   {
-    key: 'Content-Security-Policy-Report-Only',
+    key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js inline bootstrap + hydration
