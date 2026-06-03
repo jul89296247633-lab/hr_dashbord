@@ -1,10 +1,35 @@
 # HANDOFF — HR Control Tower
 
-> Сводка состояния проекта. Обновлено: **2026-06-02 (FS-2 — бонусы + админ-таблица вакансий в стиле Data, в проде)**.
+> Сводка состояния проекта. Обновлено: **2026-06-03 (prod-блокеры перед PR в main: SEC-012 + CSP закрыты, RLS-тесты — план готов)**.
 > Источник истины — `SPEC.md`. Правила команды — `CLAUDE.md`.
 > Стек: Next.js 15 (App Router, `src/`), TypeScript, Tailwind v4, shadcn/ui, Supabase PG17, Zod.
 
 Проверка после изменений: `npx tsc --noEmit`, `npm run lint`, `next build` — все три зелёные.
+
+---
+
+## 🚧 Prod-блокеры перед PR `feature/bonuses-admin-vacancies` → `main` (сессия 2026-06-03)
+
+Решения по веткам: **3 ветки по блокеру от feature** (не от main — main отстаёт, нет FS-2/схемы), каждая `--no-ff` мёрджится обратно в feature; финал — один PR feature → main.
+
+| # | Блокер | Статус | Где |
+|---|--------|--------|-----|
+| 2 | **SEC-012 `xlsx`** | ✅ **Закрыт** | `chore/sec-012-xlsx` → merge `62ae9f7` |
+| 3 | **CSP enforced** | ✅ **Код готов**, ждёт рантайм-верификации | `chore/csp-enforce` → merge `eafed9d` |
+| 1 | **RLS-тесты под Docker** | ⏸ **План готов**, реализация ждёт Docker | план `512d478` |
+
+**SEC-012** (`62ae9f7`): `xlsx 0.18.5 → 0.20.3` с официального CDN SheetJS (`package.json` указывает на tgz-URL) — патч **CVE-2023-30533** (prototype pollution, фикс 0.19.3) + **CVE-2024-22363** (ReDoS, фикс 0.20.2). API не менялся (`read`/`sheet_to_json`/`write`/`aoa_to_sheet` в [xlsx-parser.ts](src/lib/templates/xlsx-parser.ts)) → код не тронут. Лимит 10 МБ + `.xlsx`-валидация уже в [upload route](src/app/api/templates/upload/route.ts). Проверено: round-trip 0.20.3 (кириллица), tsc/lint/тесты 117/117/`next build` зелёные. Остаток `npm audit` — 2 moderate по `postcss` (транзитив Next, **не** SEC-012, не трогаем).
+
+**CSP** (`eafed9d`): флип в [next.config.ts](next.config.ts) `Content-Security-Policy-Report-Only` → `Content-Security-Policy`, **директивы не менялись** (`script/style` `unsafe-inline`+`unsafe-eval` для Next hydration — ужесточение на nonce = отдельная задача). Проверено по коду: все внешние вызовы (HH/Mango/Anthropic/Google) — **серверные**, клиентские `fetch` бьют только в свой `/api` (self) + Supabase REST/WS → `connect-src 'self' https://*.supabase.co wss://*.supabase.co` достаточно, доменов добавлять не нужно. **Не закрыто:** рантайм-верификация CSP-violation на **Vercel preview** ветки feature (DevTools Console/Network): `/login`, `/dashboard`, `/vacancies/admin`, `/staffing/plan`, `/bonuses`, `/admin/bonuses`, `/onboarding`. Локально не проверяемо (middleware падает без env; dummy-ключи дают ложный результат — осознанно не делали).
+
+**RLS-тесты** (`512d478`): план — [docs/RLS_TEST_PLAN.md](docs/RLS_TEST_PLAN.md). Реализация заблокирована отсутствием Docker в dev-среде (`supabase start` не поднять). Когда будет Docker: расширить [rls-trigger.test.ts](src/tests/integration/rls-trigger.test.ts) на SELECT-изоляцию по таблицам + executive-без-имён + границы head/admin (SKIP-guarded), прогнать `supabase start && npm run test:integration`. Это **последний** блокер до PR.
+
+**Git:** все три в origin, ветка feature HEAD `512d478`, local==origin. В `main` НЕ влита.
+
+### Осталось до PR в main
+1. CSP — рантайм-верификация на Vercel preview (твой шаг).
+2. RLS-тесты — реализация + прогон под Docker (твой Docker, мой код).
+3. После обоих зелёных → PR `feature → main`.
 
 ---
 
@@ -27,7 +52,7 @@
 ### Открытые на следующие сессии
 - **Build не нужен** — FS-2 в проде.
 - **Backfill ~158 вакансий** к штатке (#2) — по необходимости, ручной привязкой.
-- **Prod-блокеры до merge в main** — см. ниже (SEC-012 `xlsx`, RLS-тесты под Docker, CSP enforced).
+- **Prod-блокеры до merge в main** — см. секцию выше (SEC-012 ✅, CSP код готов/ждёт preview, RLS план готов/ждёт Docker).
 - Возможные доработки из review (не блокеры): `bonus_date` не обновляется при повторном закрытии (P2); доступ `GET /api/admin/bonus-rates` для head (зафиксировать).
 
 ---
