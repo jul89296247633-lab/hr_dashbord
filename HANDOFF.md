@@ -16,20 +16,27 @@
 |---|--------|--------|-----|
 | 2 | **SEC-012 `xlsx`** | ✅ **Закрыт** | `chore/sec-012-xlsx` → merge `62ae9f7` |
 | 3 | **CSP enforced** | ✅ **Код готов**, ждёт рантайм-верификации | `chore/csp-enforce` → merge `eafed9d` |
-| 1 | **RLS-тесты под Docker** | ⏸ **План готов**, реализация ждёт Docker | план `512d478` |
+| 1 | **RLS-тесты под Docker** | 🔧 **Каркас написан**, отладка на стенде у пользователя | `chore/rls-integration-tests` |
 
 **SEC-012** (`62ae9f7`): `xlsx 0.18.5 → 0.20.3` с официального CDN SheetJS (`package.json` указывает на tgz-URL) — патч **CVE-2023-30533** (prototype pollution, фикс 0.19.3) + **CVE-2024-22363** (ReDoS, фикс 0.20.2). API не менялся (`read`/`sheet_to_json`/`write`/`aoa_to_sheet` в [xlsx-parser.ts](src/lib/templates/xlsx-parser.ts)) → код не тронут. Лимит 10 МБ + `.xlsx`-валидация уже в [upload route](src/app/api/templates/upload/route.ts). Проверено: round-trip 0.20.3 (кириллица), tsc/lint/тесты 117/117/`next build` зелёные. Остаток `npm audit` — 2 moderate по `postcss` (транзитив Next, **не** SEC-012, не трогаем).
 
 **CSP** (`eafed9d`): флип в [next.config.ts](next.config.ts) `Content-Security-Policy-Report-Only` → `Content-Security-Policy`, **директивы не менялись** (`script/style` `unsafe-inline`+`unsafe-eval` для Next hydration — ужесточение на nonce = отдельная задача). Проверено по коду: все внешние вызовы (HH/Mango/Anthropic/Google) — **серверные**, клиентские `fetch` бьют только в свой `/api` (self) + Supabase REST/WS → `connect-src 'self' https://*.supabase.co wss://*.supabase.co` достаточно, доменов добавлять не нужно. **Не закрыто:** рантайм-верификация CSP-violation на **Vercel preview** ветки feature (DevTools Console/Network): `/login`, `/dashboard`, `/vacancies/admin`, `/staffing/plan`, `/bonuses`, `/admin/bonuses`, `/onboarding`. Локально не проверяемо (middleware падает без env; dummy-ключи дают ложный результат — осознанно не делали).
 
-**RLS-тесты** (`512d478`): план — [docs/RLS_TEST_PLAN.md](docs/RLS_TEST_PLAN.md). Реализация заблокирована отсутствием Docker в dev-среде (`supabase start` не поднять). Когда будет Docker: расширить [rls-trigger.test.ts](src/tests/integration/rls-trigger.test.ts) на SELECT-изоляцию по таблицам + executive-без-имён + границы head/admin (SKIP-guarded), прогнать `supabase start && npm run test:integration`. Это **последний** блокер до PR.
+**RLS-тесты** (ветка `chore/rls-integration-tests`, от feature): план — [docs/RLS_TEST_PLAN.md](docs/RLS_TEST_PLAN.md). Docker появился у пользователя; идёт отладка каркаса на поднятом стенде (`supabase start` → `npm run test:integration`).
+- **Каркас** — [rls-isolation.test.ts](src/tests/integration/rls-isolation.test.ts): первый тест (Группа 1, изоляция `hr_bonuses`: manager1 не видит бонусы manager2). Подход — raw SQL через `pg` (`SET LOCAL ROLE authenticated` + `request.jwt.claims`), `BEGIN→seed под postgres→actAs→SELECT→assert→ROLLBACK`, graceful-skip без стенда. +`pg`/`@types/pg` (devDeps). Закоммичено: каркас + get_my_role-репейр (HEAD `54cb6da`).
+- **Drift, вскрытый `supabase start`** (прод собран вне цепочки миграций):
+  1. **`get_my_role()`** не создавалась ни одной миграцией → harden@062400 падал на `ALTER` её. Репейр [20260530050000_create_get_my_role.sql](supabase/migrations/20260530050000_create_get_my_role.sql) (закоммичен `54cb6da`).
+  2. **Политики `user_profiles` рекурсивны** в `initial_schema` (`EXISTS(SELECT FROM user_profiles)` внутри политики самой таблицы → infinite recursion); прод использует `get_my_role()`. Репейр [20260530050100_repair_user_profiles_policies.sql](supabase/migrations/20260530050100_repair_user_profiles_policies.sql) — пересоздаёт 3 боевые политики (**ещё не закоммичен**, идёт прогон).
+  3. Сидинг каркаса доведён под локальную схему: `user_profiles.email` NOT NULL (добавлен), upsert `ON CONFLICT (id)` под триггер `handle_new_user` (создаёт профиль с дефолтной ролью) — **не закоммичено**.
+- Обе репейр-миграции идемпотентны и безопасны для прода (no-op при `db push` — идентичны боевым). Политики ДРУГИХ таблиц (`EXISTS FROM user_profiles`) — норма, не рекурсия, совпадают с продом, не трогаем.
+- **Далее:** дожать зелёный каркас → закоммитить репейры+сидинг → масштабировать на Группы 1/2/4; Группа 5 — расширение `rls-trigger.test.ts`; Группа 3 покрыта `executive-pii.test.ts`.
 
-**Git:** все три в origin, ветка feature HEAD `512d478`, local==origin. В `main` НЕ влита.
+**Git:** SEC-012/CSP в feature (HEAD `e18e061`, local==origin). RLS — отдельная ветка `chore/rls-integration-tests` (НЕ влита в feature до зелёного прогона). В `main` НЕ влита.
 
 ### Осталось до PR в main
-1. CSP — рантайм-верификация на Vercel preview (твой шаг).
-2. RLS-тесты — реализация + прогон под Docker (твой Docker, мой код).
-3. После обоих зелёных → PR `feature → main`.
+1. RLS-тесты — дожать каркас на стенде, закоммитить репейры+сидинг, смёржить в feature.
+2. CSP — рантайм-верификация (решено: на **production после merge**, preview не нашёлся; в тело PR — как post-merge проверка).
+3. После RLS-зелёного → PR `feature → main`.
 
 ---
 
