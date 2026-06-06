@@ -105,7 +105,7 @@
 - ~~**Спека #2** — авто-укомплектованность (occupied из статусов вакансий)~~ → **СДЕЛАНО** (см. секцию выше; в проде, миграция `20260531062025`). Деление розница/компания осознанно НЕ делалось — укомплектованность общая.
 - **Правка hh_only** → вариант Б: критерий `hh_refresh_token IS NOT NULL` (реально подключённые к HH), не `hh_manager_id`. Память: `hh-only-filter-criterion.md`.
 - **Prod-блокеры до merge в main:** SEC-012 (`xlsx` HIGH, фикса нет → форк/CDN или принять риск), RLS-интеграционные тесты (Docker-прогон, `npm run test:integration` = 7 passed), CSP report-only → enforced.
-- **Backlog:** Mango-колонка на /admin/integrations, head через HH (OAuth), favicon «Четвёртый форс», impersonation page-level overlay (fast-follow).
+- **Backlog:** Mango-колонка на /admin/integrations, head через HH (OAuth), impersonation page-level overlay (fast-follow).
 
 ---
 
@@ -148,7 +148,6 @@
 - **Impersonation** (вход как менеджер) — требования безопасности проработаны, реализация не начата.
 - **Mango-колонка** на `/admin/integrations`.
 - Решение по **head через HH** (OAuth для роли head).
-- **Favicon «Четвёртый форс»**.
 
 ---
 
