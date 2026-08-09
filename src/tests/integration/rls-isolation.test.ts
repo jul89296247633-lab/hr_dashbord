@@ -55,10 +55,18 @@ async function seedUser(client: PoolClient, id: string, role: string, fullName: 
        $2, '', now(), now(), now())`,
     [id, `${id}@test.internal`],
   );
+  // Триггер handle_new_user (на auth.users) уже создаёт user_profiles с дефолтной
+  // ролью 'manager'. Upsert устойчив в обоих случаях: триггер есть (обновим роль/имя)
+  // или нет (вставим сами).
   await client.query(
-    `INSERT INTO public.user_profiles (id, role, full_name, is_active)
-     VALUES ($1, $2, $3, true)`,
-    [id, role, fullName],
+    `INSERT INTO public.user_profiles (id, role, full_name, email, is_active)
+     VALUES ($1, $2, $3, $4, true)
+     ON CONFLICT (id) DO UPDATE
+       SET role = EXCLUDED.role,
+           full_name = EXCLUDED.full_name,
+           email = EXCLUDED.email,
+           is_active = true`,
+    [id, role, fullName, `${id}@test.internal`],
   );
 }
 
