@@ -1,0 +1,4 @@
+interface:
+  display_name: "Подбор HR: поддержка"
+  short_description: "Фото, презентация и доступ Telegram-бота"
+  default_prompt: "Используй $podbor-hr-support для диагностики HR-презентации или добавления пользователя в Telegram-бота."

@@ -34,3 +34,12 @@ yarn-error.log*
 
 # supabase CLI temp-артефакты (версия CLI и пр., не нужно в гите)
 supabase/.temp/
+
+# local runtime artifacts
+.tmp-*/
+supabase/.branches/
+
+# generated HR presentation artifacts
+build-podbor-pptx.mjs
+podbor_present_rows.json
+tmp_*.jpg

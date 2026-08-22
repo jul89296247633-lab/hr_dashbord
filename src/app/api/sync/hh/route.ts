@@ -93,6 +93,7 @@ export async function POST() {
         status,
         records_total: result.records_total,
         records_updated: result.records_updated,
+        phone_calls_updated: result.phone_calls_updated,
         errors: result.errors,
       },
     });

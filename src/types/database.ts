@@ -608,6 +608,75 @@ export type Database = {
           },
         ];
       };
+      hh_phone_calls: {
+        Row: {
+          id: string;
+          hh_call_id: string;
+          vacancy_id: string;
+          hh_vacancy_id: string;
+          manager_id: string | null;
+          negotiation_id: string | null;
+          status: string;
+          creation_time: string;
+          last_change_time: string | null;
+          duration_seconds: number | null;
+          picked_up_phone_by_opponent: boolean | null;
+          raw_json: Json;
+          synced_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          hh_call_id: string;
+          vacancy_id: string;
+          hh_vacancy_id: string;
+          manager_id?: string | null;
+          negotiation_id?: string | null;
+          status: string;
+          creation_time: string;
+          last_change_time?: string | null;
+          duration_seconds?: number | null;
+          picked_up_phone_by_opponent?: boolean | null;
+          raw_json?: Json;
+          synced_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          hh_call_id?: string;
+          vacancy_id?: string;
+          hh_vacancy_id?: string;
+          manager_id?: string | null;
+          negotiation_id?: string | null;
+          status?: string;
+          creation_time?: string;
+          last_change_time?: string | null;
+          duration_seconds?: number | null;
+          picked_up_phone_by_opponent?: boolean | null;
+          raw_json?: Json;
+          synced_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'hh_phone_calls_vacancy_id_fkey';
+            columns: ['vacancy_id'];
+            isOneToOne: false;
+            referencedRelation: 'vacancies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'hh_phone_calls_manager_id_fkey';
+            columns: ['manager_id'];
+            isOneToOne: false;
+            referencedRelation: 'user_profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       manager_plans: {
         Row: {
           id: string;

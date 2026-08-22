@@ -74,15 +74,43 @@ interface HhVacancyResponse {
   };
 }
 
+interface HhPhoneCall {
+  id?: number | string;
+  status?: string;
+  creation_time?: string;
+  last_change_time?: string | null;
+  duration_seconds?: number | null;
+}
+
+interface HhNegotiationWithCalls {
+  id?: number | string;
+  phone_calls?: {
+    picked_up_phone_by_opponent?: boolean | null;
+    items?: HhPhoneCall[];
+  };
+}
+
+interface HhPhoneCallsResponse {
+  items?: HhNegotiationWithCalls[];
+  pages?: number;
+}
+
 type FetchResult =
   | { kind: 'ok'; data: HhVacancyResponse }
   | { kind: 'not_found' }
   | { kind: 'rate_limited' }
   | { kind: 'failed' };
 
+type PhoneCallsResult =
+  | { kind: 'ok'; calls: Array<HhPhoneCall & { negotiation_id: string | null; picked_up_phone_by_opponent: boolean | null }> }
+  | { kind: 'not_available' }
+  | { kind: 'rate_limited' }
+  | { kind: 'failed' };
+
 interface RunResult {
   total: number;
   updated: number;
+  phoneCallsUpdated: number;
   skipped: number;
   errors: number;
   errorMessages: string[];
@@ -127,6 +155,85 @@ async function fetchVacancyStats(token: string, hhId: string): Promise<FetchResu
     if (attempt < delays.length) await sleep(delays[attempt]);
   }
   return { kind: 'failed' };
+}
+
+/** Забирает HH-звонки по вакансии из коллекции negotiations/phone_calls. */
+async function fetchPhoneCalls(token: string, hhId: string): Promise<PhoneCallsResult> {
+  const callsById = new Map<
+    string,
+    HhPhoneCall & { negotiation_id: string | null; picked_up_phone_by_opponent: boolean | null }
+  >();
+
+  for (let page = 0; page < 50; page += 1) {
+    const url = `https://api.hh.ru/negotiations/phone_calls?${new URLSearchParams({
+      vacancy_id: hhId,
+      page: String(page),
+      per_page: '100',
+    })}`;
+
+    try {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.status === 403 || res.status === 404) return { kind: 'not_available' };
+      if (res.status === 429) return { kind: 'rate_limited' };
+      if (!res.ok) return { kind: 'failed' };
+
+      const data = (await res.json()) as HhPhoneCallsResponse;
+      for (const item of data.items ?? []) {
+        const negotiationId = item.id == null ? null : String(item.id);
+        const pickedUp = item.phone_calls?.picked_up_phone_by_opponent ?? null;
+        for (const call of item.phone_calls?.items ?? []) {
+          if (call.id == null || !call.status || !call.creation_time) continue;
+          callsById.set(String(call.id), {
+            ...call,
+            negotiation_id: negotiationId,
+            picked_up_phone_by_opponent: pickedUp,
+          });
+        }
+      }
+
+      if (data.pages == null || page >= data.pages - 1) break;
+    } catch {
+      return { kind: 'failed' };
+    }
+  }
+
+  return { kind: 'ok', calls: Array.from(callsById.values()) };
+}
+
+async function upsertPhoneCalls(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any,
+  vacancy: { id: string; hh_vacancy_id: string; manager_id: string | null },
+  calls: Array<HhPhoneCall & { negotiation_id: string | null; picked_up_phone_by_opponent: boolean | null }>,
+): Promise<number> {
+  if (calls.length === 0) return 0;
+
+  const rows = calls.map((call) => ({
+    hh_call_id: String(call.id),
+    vacancy_id: vacancy.id,
+    hh_vacancy_id: vacancy.hh_vacancy_id,
+    manager_id: vacancy.manager_id,
+    negotiation_id: call.negotiation_id,
+    status: call.status ?? 'unknown',
+    creation_time: call.creation_time!,
+    last_change_time: call.last_change_time ?? null,
+    duration_seconds: call.duration_seconds ?? null,
+    picked_up_phone_by_opponent: call.picked_up_phone_by_opponent,
+    raw_json: {
+      id: call.id,
+      status: call.status,
+      creation_time: call.creation_time!,
+      last_change_time: call.last_change_time ?? null,
+      duration_seconds: call.duration_seconds ?? null,
+      negotiation_id: call.negotiation_id,
+      picked_up_phone_by_opponent: call.picked_up_phone_by_opponent,
+    },
+    synced_at: new Date().toISOString(),
+  }));
+
+  const { error } = await db.from('hh_phone_calls').upsert(rows, { onConflict: 'hh_call_id' });
+  if (error) throw new Error(`HH phone calls upsert: ${error.message}`);
+  return rows.length;
 }
 
 /**
@@ -206,7 +313,14 @@ async function runSync(db: any): Promise<RunResult> {
 
   console.log(`[sync-hh] found ${vacancies.length} vacancies to process`);
 
-  const result: RunResult = { total: vacancies.length, updated: 0, skipped: 0, errors: 0, errorMessages: [] };
+  const result: RunResult = {
+    total: vacancies.length,
+    updated: 0,
+    phoneCallsUpdated: 0,
+    skipped: 0,
+    errors: 0,
+    errorMessages: [],
+  };
 
   for (let i = 0; i < vacancies.length; i++) {
     const v = vacancies[i];
@@ -334,6 +448,37 @@ async function runSync(db: any): Promise<RunResult> {
 
     // ── Успех: сохраняем снимок воронки ──────────────────────────────────
     const stats = fetchResult.data;
+    let callsCount: number | null = null;
+
+    const phoneCallsResult = await fetchPhoneCalls(token, v.hh_vacancy_id);
+    if (phoneCallsResult.kind === 'ok') {
+      callsCount = phoneCallsResult.calls.length;
+      try {
+        result.phoneCallsUpdated += await upsertPhoneCalls(db, {
+          id: v.id,
+          hh_vacancy_id: v.hh_vacancy_id,
+          manager_id: v.manager_id,
+        }, phoneCallsResult.calls);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await logError({
+          db,
+          source: 'cron_sync_hh',
+          severity: 'warn',
+          error_code: 'HH_PHONE_CALLS_UPSERT_FAILED',
+          message: msg,
+          context: { vacancy_id: v.id, hh_vacancy_id: v.hh_vacancy_id },
+        });
+        result.errors++;
+        result.errorMessages.push(`HH_PHONE_CALLS_UPSERT_FAILED hh_vacancy_id=${v.hh_vacancy_id}`);
+      }
+    } else if (phoneCallsResult.kind === 'rate_limited') {
+      result.errors++;
+      result.errorMessages.push(`HH_PHONE_CALLS_RATE_LIMITED hh_vacancy_id=${v.hh_vacancy_id}`);
+    } else if (phoneCallsResult.kind === 'failed') {
+      result.errors++;
+      result.errorMessages.push(`HH_PHONE_CALLS_FETCH_FAILED hh_vacancy_id=${v.hh_vacancy_id}`);
+    }
 
     // Авто-закрытие архивированных
     if (stats.status?.id === 'archived') {
@@ -346,6 +491,7 @@ async function runSync(db: any): Promise<RunResult> {
       responses_count:           stats.counters?.responses ?? 0,
       views_count:               stats.counters?.views ?? 0,
       invitations_from_responses: stats.counters?.invitations ?? 0,
+      calls_count:                callsCount,
       source:                    'hh_api',
     });
 
@@ -487,7 +633,8 @@ async function main() {
 
   console.log(
     `[sync-hh] done: total=${syncResult.total} updated=${syncResult.updated} ` +
-    `skipped=${syncResult.skipped} errors=${syncResult.errors} status=${status}`,
+    `phone_calls=${syncResult.phoneCallsUpdated} skipped=${syncResult.skipped} ` +
+    `errors=${syncResult.errors} status=${status}`,
   );
 
   // ── Telegram: только при превышении порога или rate limit ─────────────────
@@ -495,6 +642,7 @@ async function main() {
   if (syncResult.errors > ALERT_THRESHOLD || hasRateLimit) {
     const details = [
       `Обработано: ${syncResult.updated}/${syncResult.total}`,
+      `HH-звонков обновлено: ${syncResult.phoneCallsUpdated}`,
       `Пропущено: ${syncResult.skipped}`,
       `Ошибок: ${syncResult.errors}`,
       hasRateLimit ? '⚠️ HH rate limit превышен' : '',
